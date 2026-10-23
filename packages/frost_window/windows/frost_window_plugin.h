@@ -49,12 +49,15 @@ class FrostWindowPlugin : public flutter::Plugin {
       const flutter::MethodCall<flutter::EncodableValue>& call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
   bool Attach();
+  void DetachWindow();
   bool InstallFrame();
   LRESULT HandleMessage(HWND, UINT, WPARAM, LPARAM);
   std::optional<LRESULT> HandleInput(HWND, UINT, WPARAM, LPARAM);
   void NavigateBack();
   int HitTest(POINT screen_point) const;
   void UpdateRegions(const flutter::EncodableValue* arguments);
+  void ApplyBackdrop();
+  bool SetNativeCaptionPainting(bool hidden);
   void UpdateToolbar(const flutter::EncodableMap& arguments);
   flutter::EncodableValue State() const;
   flutter::EncodableValue Diagnostics() const;
@@ -78,10 +81,17 @@ class FrostWindowPlugin : public flutter::Plugin {
   bool system_menu_char_pending_ = false;
   bool tracking_leave_ = false;
   bool ready_ = false;
+  bool shutting_down_ = false;
+  int requested_backdrop_ = 1;  // DWMSBT_NONE; 2=Mica, 4=Mica Alt.
+  bool reduce_transparency_ = false;
+  bool backdrop_available_ = false;
+  bool backdrop_active_ = false;
+  bool native_caption_hidden_ = false;
   const char* failure_step_ = "not_attached";
   DWORD failure_error_ = 0;
   double minimum_width_ = 0;
   double minimum_height_ = 0;
+  double resize_border_width_ = 4;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;
 };
 

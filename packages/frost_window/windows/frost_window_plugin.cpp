@@ -19,6 +19,30 @@ namespace {
 constexpr UINT_PTR kWindowSubclass = 0x46524f53;   // 'FROS'
 constexpr UINT_PTR kContentSubclass = 0x46524f54;  // 'FROT'
 
+// RtlGetVersion avoids compatibility-manifest version virtualization.
+bool SupportsSystemBackdrop() {
+  using GetVersion = LONG(WINAPI*)(OSVERSIONINFOW*);
+  const auto get_version = reinterpret_cast<GetVersion>(
+      GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion"));
+  OSVERSIONINFOW version{};
+  version.dwOSVersionInfoSize = sizeof(version);
+  return get_version != nullptr && get_version(&version) == 0 &&
+         version.dwMajorVersion >= 10 && version.dwBuildNumber >= 22621;
+}
+
+bool SystemTransparencyEnabled() {
+  HIGHCONTRASTW contrast{sizeof(HIGHCONTRASTW), 0, nullptr};
+  if (SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
+      (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0) return false;
+  DWORD enabled = 1;
+  DWORD bytes = sizeof(enabled);
+  // Missing preference means the Windows default (enabled).
+  RegGetValueW(HKEY_CURRENT_USER,
+      L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+      L"EnableTransparency", RRF_RT_REG_DWORD, nullptr, &enabled, &bytes);
+  return enabled != 0;
+}
+
 double Number(const flutter::EncodableValue& value) {
   if (const auto* number = std::get_if<double>(&value)) return *number;
   if (const auto* number = std::get_if<int32_t>(&value)) return *number;
@@ -212,18 +236,33 @@ FrostWindowPlugin::FrostWindowPlugin(flutter::PluginRegistrarWindows* registrar)
 }
 
 FrostWindowPlugin::~FrostWindowPlugin() {
+  DetachWindow();
+  // Registrar destruction can follow engine destruction. The messenger owns
+  // its handlers and clears them with the engine; calling SetMethodCallHandler
+  // here dereferences that dead engine. Releasing MethodChannel itself is local.
+}
+
+void FrostWindowPlugin::DetachWindow() {
+  if (shutting_down_) return;
+  shutting_down_ = true;
+  ready_ = false;
   if (instance_ == this) instance_ = nullptr;
-  channel_->SetMethodCallHandler(nullptr);
-  if (message_hook_ != nullptr) UnhookWindowsHookEx(message_hook_);
+  if (message_hook_ != nullptr) {
+    UnhookWindowsHookEx(message_hook_);
+    message_hook_ = nullptr;
+  }
   if (content_ != nullptr && IsWindow(content_)) {
     RemoveWindowSubclass(content_, ContentProc, kContentSubclass);
   }
   if (window_ != nullptr && IsWindow(window_)) {
     RemoveWindowSubclass(window_, WindowProc, kWindowSubclass);
   }
+  content_ = nullptr;
+  window_ = nullptr;
 }
 
 bool FrostWindowPlugin::Attach() {
+  if (shutting_down_) return false;
   if (ready_) return true;
   if (content_ == nullptr || !IsWindow(content_)) return false;
   const HWND root = GetAncestor(content_, GA_ROOT);
@@ -300,12 +339,37 @@ void FrostWindowPlugin::HandleMethodCall(
   }
   if (method == "setRegions") {
     UpdateRegions(call.arguments());
+  } else if (method == "setResizeBorder") {
+    const double width = call.arguments() == nullptr ? 0 : Number(*call.arguments());
+    if (!std::isfinite(width) || width <= 0) {
+      result->Error("invalid_arguments", "Invalid window resize border.");
+      return;
+    }
+    resize_border_width_ = width;
   } else if (method == "setToolbar") {
     if (map == nullptr) {
       result->Error("invalid_arguments", "Invalid window toolbar.");
       return;
     }
     UpdateToolbar(*map);
+  } else if (method == "setBackdrop") {
+    if (map == nullptr) {
+      result->Error("invalid_arguments", "Invalid window backdrop.");
+      return;
+    }
+    const auto mode = map->find(flutter::EncodableValue("backdrop"));
+    const auto reduce = map->find(flutter::EncodableValue("reduceTransparency"));
+    const auto* name = mode == map->end() ? nullptr : std::get_if<std::string>(&mode->second);
+    const auto* solid = reduce == map->end() ? nullptr : std::get_if<bool>(&reduce->second);
+    if (name == nullptr || solid == nullptr ||
+        (*name != "none" && *name != "mica" && *name != "micaAlt")) {
+      result->Error("invalid_arguments", "Invalid window backdrop.");
+      return;
+    }
+    requested_backdrop_ = *name == "mica" ? 2 : *name == "micaAlt" ? 4 : 1;
+    reduce_transparency_ = *solid;
+    ApplyBackdrop();
+    PublishState();
   } else if (method == "configure") {
     const auto* list =
         call.arguments() == nullptr
@@ -395,6 +459,55 @@ void FrostWindowPlugin::UpdateRegions(const flutter::EncodableValue* arguments) 
   }
 }
 
+void FrostWindowPlugin::ApplyBackdrop() {
+  if (window_ == nullptr) return;
+  // Attribute 38 is DWMWA_SYSTEMBACKDROP_TYPE (Win11 22H2+). Older SDKs can
+  // still build the plugin; runtime support is checked before setting it.
+  const bool eligible = requested_backdrop_ != 1 && !reduce_transparency_ &&
+                        SupportsSystemBackdrop() && SystemTransparencyEnabled();
+  const int mode = eligible ? requested_backdrop_ : 1;
+  const HRESULT applied = DwmSetWindowAttribute(
+      window_, static_cast<DWMWINDOWATTRIBUTE>(38), &mode, sizeof(mode));
+  backdrop_available_ = SupportsSystemBackdrop() && SystemTransparencyEnabled() && SUCCEEDED(applied);
+  const bool active = eligible && backdrop_available_;
+  // Full-client glass is required by the Flutter child swapchain. Caption
+  // painting is suppressed separately; window capabilities stay unchanged.
+  const MARGINS margins = active ? MARGINS{-1, -1, -1, -1} : MARGINS{0, 0, 0, 0};
+  const HRESULT extended = DwmExtendFrameIntoClientArea(window_, &margins);
+  backdrop_active_ = active && SUCCEEDED(extended);
+  if (!SetNativeCaptionPainting(backdrop_active_)) {
+    backdrop_active_ = false;
+    const MARGINS clear{0, 0, 0, 0};
+    DwmExtendFrameIntoClientArea(window_, &clear);
+  }
+  if (active && !backdrop_active_) {
+    const int none = 1;
+    DwmSetWindowAttribute(window_, static_cast<DWMWINDOWATTRIBUTE>(38), &none, sizeof(none));
+  }
+}
+
+bool FrostWindowPlugin::SetNativeCaptionPainting(bool hidden) {
+  if (native_caption_hidden_ == hidden) return true;
+  const LONG_PTR style = GetWindowLongPtr(window_, GWL_STYLE);
+  // DWM paints caption glyphs whenever WS_SYSMENU is present. Keep WS_CAPTION,
+  // WS_THICKFRAME and both min/max boxes: they own animations and Snap.
+  // As in Mozilla's custom titlebar, initialize the lazy menu before hiding
+  // its native drawing. Our existing Alt+Space/right-click path still uses it.
+  if (hidden && GetSystemMenu(window_, FALSE) == nullptr) return false;
+  SetLastError(0);
+  const LONG_PTR previous = SetWindowLongPtr(
+      window_, GWL_STYLE, hidden ? style & ~WS_SYSMENU : style | WS_SYSMENU);
+  if (previous == 0 && GetLastError() != 0) return false;
+  if (!SetWindowPos(window_, nullptr, 0, 0, 0, 0,
+                    SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                        SWP_NOACTIVATE)) {
+    SetWindowLongPtr(window_, GWL_STYLE, style);
+    return false;
+  }
+  native_caption_hidden_ = hidden;
+  return true;
+}
+
 void FrostWindowPlugin::UpdateToolbar(const flutter::EncodableMap& arguments) {
   if (auto title = arguments.find(flutter::EncodableValue("title"));
       title != arguments.end()) {
@@ -423,8 +536,6 @@ void FrostWindowPlugin::UpdateToolbar(const flutter::EncodableMap& arguments) {
 
 int FrostWindowPlugin::HitTest(POINT point) const {
   if (window_ == nullptr) return HTCLIENT;
-  RECT rect{};
-  GetWindowRect(window_, &rect);
   const UINT dpi = GetDpiForWindow(window_);
   POINT client_point = point;
   ScreenToClient(content_, &client_point);
@@ -432,28 +543,26 @@ int FrostWindowPlugin::HitTest(POINT point) const {
   const double client_x = client_point.x / scale;
   const double client_y = client_point.y / scale;
   if (!IsZoomed(window_) && !IsIconic(window_)) {
-    const int corner_x = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) +
-                         GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-    const int corner_y = GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) +
-                         GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-    if (point.y < rect.top + corner_y) {
-      if (point.x < rect.left + corner_x) return HTTOPLEFT;
-      if (point.x >= rect.right - corner_x) return HTTOPRIGHT;
-    }
-    if (point.y >= rect.bottom - corner_y) {
-      if (point.x < rect.left + corner_x) return HTBOTTOMLEFT;
-      if (point.x >= rect.right - corner_x) return HTBOTTOMRIGHT;
-    }
-    // NCCALCSIZE gives Flutter the full client rect. The padded system frame
-    // therefore lies over content, rather than outside it. Reserve only the
-    // outer two logical pixels for straight-edge resizing, keeping larger
-    // corner targets without stealing input from window-edge controls such
-    // as a scrollbar on the right edge.
-    const int edge = (std::max)(1, MulDiv(2, dpi, USER_DEFAULT_SCREEN_DPI));
-    if (point.x < rect.left + edge) return HTLEFT;
-    if (point.x >= rect.right - edge) return HTRIGHT;
-    if (point.y < rect.top + edge) return HTTOP;
-    if (point.y >= rect.bottom - edge) return HTBOTTOM;
+    RECT client{};
+    GetClientRect(window_, &client);
+    MapWindowPoints(window_, nullptr, reinterpret_cast<POINT*>(&client), 2);
+    // Three resize edges live entirely in the system's invisible frame.
+    // Only the top strip occupies visible client pixels. Its intersections
+    // with the outer side borders form the two upper corner targets.
+    const bool left = point.x < client.left;
+    const bool right = point.x >= client.right;
+    const bool bottom = point.y >= client.bottom;
+    const int top_width = (std::max)(1, static_cast<int>(std::round(
+        resize_border_width_ * dpi / USER_DEFAULT_SCREEN_DPI)));
+    const bool top = point.y < client.top + top_width;
+    if (top && left) return HTTOPLEFT;
+    if (top && right) return HTTOPRIGHT;
+    if (bottom && left) return HTBOTTOMLEFT;
+    if (bottom && right) return HTBOTTOMRIGHT;
+    if (left) return HTLEFT;
+    if (right) return HTRIGHT;
+    if (top) return HTTOP;
+    if (bottom) return HTBOTTOM;
   }
   for (const auto& region : regions_) {
     if (client_x >= region.left && client_x < region.right &&
@@ -476,12 +585,18 @@ flutter::EncodableValue FrostWindowPlugin::State() const {
        flutter::EncodableValue(ButtonName(hovered_button_))},
       {flutter::EncodableValue("pressedButton"),
        flutter::EncodableValue(ButtonName(pressed_button_))},
+      {flutter::EncodableValue("reduceTransparency"),
+       flutter::EncodableValue(!SystemTransparencyEnabled())},
+      {flutter::EncodableValue("backdropAvailable"),
+       flutter::EncodableValue(backdrop_available_)},
+      {flutter::EncodableValue("backdropActive"),
+       flutter::EncodableValue(backdrop_active_)},
       {flutter::EncodableValue("revision"), flutter::EncodableValue(revision_)},
   });
 }
 
 void FrostWindowPlugin::PublishState() {
-  if (!channel_ || window_ == nullptr) return;
+  if (shutting_down_ || !channel_ || window_ == nullptr) return;
   ++revision_;
   channel_->InvokeMethod("stateChanged",
                          std::make_unique<flutter::EncodableValue>(State()));
@@ -625,6 +740,7 @@ LRESULT FrostWindowPlugin::HandleMessage(HWND hwnd, UINT message, WPARAM wparam,
     return *handled;
   }
   switch (message) {
+
     case WM_SETFOCUS:
       if (IsWindow(content_) && GetFocus() != content_) SetFocus(content_);
       return 0;
@@ -652,15 +768,27 @@ LRESULT FrostWindowPlugin::HandleMessage(HWND hwnd, UINT message, WPARAM wparam,
       if ((GetKeyState(VK_SPACE) & 0x8000) == 0) system_menu_key_down_ = false;
       system_menu_char_pending_ = false;
       break;
-    case WM_NCCALCSIZE:
-      if (wparam) {
-        if (IsZoomed(hwnd)) {
-          SetMaximizedClientRect(
-              &reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam)->rgrc[0]);
-        }
-        return 0;
+    case WM_NCCALCSIZE: {
+      RECT* client = wparam
+                         ? &reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam)->rgrc[0]
+                         : reinterpret_cast<RECT*>(lparam);
+      if (IsZoomed(hwnd)) {
+        SetMaximizedClientRect(client);
+      } else {
+        // Keep the native invisible border outside Flutter's client area.
+        // Query the current DPI on every calculation, including the runner's
+        // SetWindowPos during WM_DPICHANGED; never cache system frame widths.
+        const UINT dpi = GetDpiForWindow(hwnd);
+        const int frame_x = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) +
+                            GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+        const int frame_y = GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) +
+                            GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+        client->left += frame_x;
+        client->right -= frame_x;
+        client->bottom -= frame_y;
       }
-      break;
+      return 0;
+    }
     case WM_GETMINMAXINFO: {
       if (minimum_width_ <= 0 || minimum_height_ <= 0) break;
       auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
@@ -728,6 +856,12 @@ LRESULT FrostWindowPlugin::HandleMessage(HWND hwnd, UINT message, WPARAM wparam,
         return 0;
       }
       break;
+    case WM_SETTINGCHANGE:
+    case WM_THEMECHANGED:
+    case WM_DWMCOMPOSITIONCHANGED:
+      ApplyBackdrop();
+      PublishState();
+      break;
     case WM_ACTIVATE:
       if (LOWORD(wparam) == WA_INACTIVE) {
         back_key_down_ = false;
@@ -739,6 +873,10 @@ LRESULT FrostWindowPlugin::HandleMessage(HWND hwnd, UINT message, WPARAM wparam,
       [[fallthrough]];
     case WM_SIZE:
       PublishState();
+      // The default runner resizes its Flutter child to the iconic client area
+      // (not necessarily zero). Preserve the last real viewport while minimized
+      // so responsive layouts and their state do not transition on restoration.
+      if (wparam == SIZE_MINIMIZED) return 0;
       break;
   }
   return DefSubclassProc(hwnd, message, wparam, lparam);
@@ -748,8 +886,9 @@ LRESULT FrostWindowPlugin::HandleMessage(HWND hwnd, UINT message, WPARAM wparam,
 LRESULT CALLBACK FrostWindowPlugin::WindowProc(HWND hwnd, UINT message,
                                                WPARAM wparam, LPARAM lparam,
                                                UINT_PTR id, DWORD_PTR data) {
-  if (message == WM_NCDESTROY) {
-    RemoveWindowSubclass(hwnd, WindowProc, id);
+  if (message == WM_DESTROY || message == WM_NCDESTROY) {
+    // Run before the runner's WM_DESTROY handler resets FlutterViewController.
+    reinterpret_cast<FrostWindowPlugin*>(data)->DetachWindow();
     return DefSubclassProc(hwnd, message, wparam, lparam);
   }
   return reinterpret_cast<FrostWindowPlugin*>(data)->HandleMessage(
@@ -761,8 +900,8 @@ LRESULT CALLBACK FrostWindowPlugin::ContentProc(HWND hwnd, UINT message,
                                                 WPARAM wparam, LPARAM lparam,
                                                 UINT_PTR id, DWORD_PTR data) {
   auto* self = reinterpret_cast<FrostWindowPlugin*>(data);
-  if (message == WM_NCDESTROY) {
-    RemoveWindowSubclass(hwnd, ContentProc, id);
+  if (message == WM_DESTROY || message == WM_NCDESTROY) {
+    self->DetachWindow();
     return DefSubclassProc(hwnd, message, wparam, lparam);
   }
   // The runner parents the view and sizes it before showing the window.

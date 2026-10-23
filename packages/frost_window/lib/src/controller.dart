@@ -7,6 +7,10 @@ import 'package:flutter/services.dart';
 /// plugin. AppKit and GTK keep their own title bars for now.
 bool get frostUsesCustomTitleBar => !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
+/// The requested system backdrop. [none] means no system backdrop: the app's
+/// ambient image or solid base supplies the window background.
+enum FrostWindowBackdrop { none, mica, micaAlt }
+
 class FrostWindowFailure implements Exception {
   const FrostWindowFailure();
 }
@@ -21,6 +25,9 @@ class FrostWindowState {
     this.maximized = false,
     this.active = true,
     this.minimized = false,
+    this.backdropActive = false,
+    this.backdropAvailable = false,
+    this.reduceTransparency = false,
     this.hoveredButton = '',
     this.pressedButton = '',
     this.revision = -1,
@@ -30,6 +37,9 @@ class FrostWindowState {
     maximized: value['maximized'] == true,
     active: value['active'] != false,
     minimized: value['minimized'] == true,
+    backdropActive: value['backdropActive'] == true,
+    backdropAvailable: value['backdropAvailable'] == true,
+    reduceTransparency: value['reduceTransparency'] == true,
     hoveredButton: value['hoveredButton'] as String? ?? '',
     pressedButton: value['pressedButton'] as String? ?? '',
     revision: (value['revision'] as num?)?.toInt() ?? 0,
@@ -38,6 +48,17 @@ class FrostWindowState {
   final bool maximized;
   final bool active;
   final bool minimized;
+
+  /// Actual native support and system preference, not just the requested mode.
+  /// Updated when Windows transparency, contrast or theme settings change.
+  final bool backdropActive;
+
+  /// Native DWM support and current system preferences permit a backdrop,
+  /// independently of the requested mode. Updated with system setting changes.
+  final bool backdropAvailable;
+
+  /// Effective Windows transparency/high-contrast preference.
+  final bool reduceTransparency;
 
   /// Native caption button under the pointer, as hit-tested by Windows so
   /// Snap Layouts keeps working: `maximize` or empty.
@@ -157,8 +178,16 @@ class FrostWindowController extends ChangeNotifier implements ValueListenable<Fr
   /// `caption` (drag/double-click/system menu) or `maximize` (Snap Layouts).
   Future<void> setRegions(List<List<Object>> regions) => _invoke<void>('setRegions', regions);
 
+  /// Sets the resize strip inside the visible top edge, in logical pixels.
+  /// The other three edges use the system's invisible non-client frame.
+  Future<void> setResizeBorder(double width) => _invoke<void>('setResizeBorder', width);
+
   /// Native window title (taskbar, Alt+Tab) and dark-mode window chrome.
   Future<void> setToolbar({required String title, required bool dark}) => _invoke<void>('setToolbar', {'title': title, 'dark': dark});
+
+  /// Unsupported systems and disabled transparency return inactive normally.
+  Future<void> setBackdrop(FrostWindowBackdrop backdrop, {required bool reduceTransparency}) =>
+      _invoke<void>('setBackdrop', {'backdrop': backdrop.name, 'reduceTransparency': reduceTransparency});
 
   /// Puts an image on the clipboard as a 32-bit sRGB BITMAPV5 [dib] plus the
   /// same image as [png]. Both must describe the same size.
