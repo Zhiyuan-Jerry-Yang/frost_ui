@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../motion/_material_reveal.dart';
+
 /// A phone page header, such as [FrostPageHeader], that collapses while the
 /// content below scrolls on and returns when it scrolls back or reaches its
 /// top. The status bar inset stays; only the toolbar collapses.
@@ -23,6 +25,8 @@ class _FpCollapsingHeaderState extends State<FrostCollapsingHeader> with SingleT
 
   late final AnimationController _shown = AnimationController(vsync: this, value: 1, duration: const Duration(milliseconds: 200));
   double _travelled = 0;
+  final _glass = FrostRevealHandle();
+  bool _targetShown = true;
 
   @override
   void dispose() {
@@ -31,6 +35,20 @@ class _FpCollapsingHeaderState extends State<FrostCollapsingHeader> with SingleT
   }
 
   void _setShown(bool shown) {
+    if (_targetShown == shown) return;
+    _targetShown = shown;
+    if (shown) {
+      _glass.cancelClose();
+    } else if (_glass.hasNestedGlass && _glass.nestedProgress > 0) {
+      _glass.prepareClose().then((ready) {
+        if (ready && mounted && !_targetShown) _animateShown(false);
+      });
+      return;
+    }
+    _animateShown(shown);
+  }
+
+  void _animateShown(bool shown) {
     final target = shown ? 1.0 : 0.0;
     if (_shown.isAnimating ? _shown.status == (shown ? AnimationStatus.forward : AnimationStatus.reverse) : _shown.value == target) return;
     if (MediaQuery.disableAnimationsOf(context)) {
@@ -80,7 +98,7 @@ class _FpCollapsingHeaderState extends State<FrostCollapsingHeader> with SingleT
                 alignment: Alignment.topCenter,
                 minHeight: kToolbarHeight,
                 maxHeight: kToolbarHeight,
-                child: Opacity(opacity: _shown.value, child: child),
+                child: FrostMaterialReveal(opacity: _shown.value, handle: _glass, contentOnly: true, child: child!),
               ),
             ),
           ),

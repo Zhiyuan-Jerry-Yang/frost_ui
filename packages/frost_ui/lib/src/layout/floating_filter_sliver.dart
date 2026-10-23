@@ -1,10 +1,12 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:frost_ui/src/layout/pinned_chrome.dart';
-import 'package:frost_ui/src/controls/form_controls.dart';
 
-double frostCompactFilterHeight(BuildContext context) => math.max(48, frostFieldHeight(context)) + 14;
+import '../foundation/_control_geometry.dart';
+import '../foundation/sizes.dart';
+import 'pinned_chrome.dart';
+
+double frostCompactFilterHeight(BuildContext context) => math.max(48, frostControlGeometry(context, FrostControlSize.regular).height) + 14;
 
 class FrostFloatingFilterSliver extends StatelessWidget {
   const FrostFloatingFilterSliver({required this.height, required this.child, super.key});

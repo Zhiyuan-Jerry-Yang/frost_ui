@@ -6,10 +6,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:frost_ui/src/controls/icon.dart';
-import 'package:frost_ui/src/foundation/metrics.dart';
-import 'package:frost_ui/src/foundation/scope.dart';
-import 'package:frost_ui/src/foundation/tokens.dart';
+
+import '../controls/_close_control.dart';
+import '../controls/buttons.dart';
+import '../feedback/_skeleton_geometry.dart';
+import '../foundation/icon_data.dart';
+import '../foundation/metrics.dart';
+import '../foundation/radius.dart';
+import '../foundation/sizes.dart';
+import '../foundation/spacing.dart';
+import '../foundation/tokens.dart';
+import '../foundation/typography.dart';
+import '../motion/_material_reveal.dart';
+import '../motion/_spring_simulation.dart';
 
 /// Browser-style tabs: their order, the one in front, and where new ones go.
 /// A tab is any object the app keeps per tab (its router, say), compared by
@@ -223,7 +232,8 @@ class _FrostTabHostState<T extends Object> extends State<FrostTabHost<T>> with S
       key: ObjectKey(tab),
       child: Offstage(
         offstage: !visible,
-        child: FadeTransition(
+        child: FrostMaterialRevealTransition(
+          contentOnly: true,
           opacity: active ? _fade : kAlwaysCompleteAnimation,
           child: ExcludeSemantics(
             excluding: !active,
@@ -301,7 +311,7 @@ class FrostTabLabel {
 
 /// The row of tabs for a [FrostTabsController], sized to its tabs and
 /// followed by a new-tab button; place it where the rest of the row is free
-/// (a window caption keeps it draggable, see [FrostCaptionContent]).
+/// (the page owns the tab strip and its hit targets).
 ///
 /// Tabs share the width up to [maxTabWidth] each. Opening, closing and
 /// moving tabs animate on springs: a new tab grows from nothing in place,
@@ -356,7 +366,7 @@ class _Spring {
     if (to == target) return;
     final velocity = _simulation?.dx(now - _start) ?? 0;
     target = to;
-    _simulation = SpringSimulation(FrostMotion.snappy, value, to, velocity, snapToEnd: true);
+    _simulation = frostSpringSimulation(FrostMotion.snappy, value, to, velocity);
     _start = now;
   }
 
@@ -573,6 +583,7 @@ class _FrostTabStripState<T extends Object> extends State<FrostTabStrip<T>> with
                           item,
                           active: item.tab == active,
                           closable: closable,
+                          height: height,
                           separator: () {
                             final index = _items.indexOf(item);
                             if (index <= 0 || !plain[index]) return false;
@@ -589,13 +600,7 @@ class _FrostTabStripState<T extends Object> extends State<FrostTabStrip<T>> with
                     bottom: 0,
                     width: buttonWidth,
                     child: Center(
-                      child: _StripButton(
-                        icon: widget.newTabIcon,
-                        tooltip: widget.newTabTooltip,
-                        size: math.min(28, height),
-                        iconSize: 16,
-                        onPressed: widget.onNewTab,
-                      ),
+                      child: FrostButton.icon(icon: widget.newTabIcon, label: widget.newTabTooltip, size: FrostControlSize.compact, onPressed: widget.onNewTab),
                     ),
                   ),
                 ],
@@ -607,7 +612,10 @@ class _FrostTabStripState<T extends Object> extends State<FrostTabStrip<T>> with
     );
   }
 
-  Widget _tab(BuildContext context, _StripItem<T> item, {required bool active, required bool closable, required bool separator}) {
+  static const _separatorLength = 16.0; // Fixed length of the vertical separator between background tabs.
+  static const _separatorThickness = 1.0; // Thickness of the vertical separator between background tabs.
+
+  Widget _tab(BuildContext context, _StripItem<T> item, {required bool active, required bool closable, required double height, required bool separator}) {
     final tokens = FrostThemeTokens.of(context);
     final label = widget.label(context, item.tab);
     final width = item.width.value;
@@ -617,42 +625,53 @@ class _FrostTabStripState<T extends Object> extends State<FrostTabStrip<T>> with
     final close = closable && (!compact || active)
         ? Listener(
             onPointerDown: (_) => _closePressed = true,
-            child: _StripButton(
-              icon: FrostScope.configOf(context).icons.close,
-              tooltip: widget.closeTooltip,
-              size: 20,
-              iconSize: 14,
+            child: FrostCloseControl(
+              label: widget.closeTooltip,
+              maximumHitHeight: math.max(frostCloseSize, height - FrostGap.inline * 2),
               onPressed: () => _close(item.tab, pointer: true),
             ),
           )
         : null;
     final leading = label.leading;
-    final textStyle = Theme.of(context).textTheme.bodySmall?.copyWith(color: active ? tokens.textPrimary : tokens.textSecondary);
+    final ink = active ? tokens.selectionInk : tokens.textSecondary;
     final content = compact
         ? Center(child: close ?? (leading == null ? null : SizedBox.square(dimension: 16, child: leading)))
         : Row(
             children: [
-              if (leading != null) ...[SizedBox.square(dimension: 16, child: leading), const SizedBox(width: 8)],
+              if (leading != null) ...[SizedBox.square(dimension: 16, child: leading), const SizedBox(width: FrostGap.related)],
               Expanded(
-                child: Text(label.title, maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: textStyle),
+                child: FrostSkeletonText(child: Text(label.title, maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis)),
               ),
-              if (close != null) ...[const SizedBox(width: 4), close],
+              if (close != null) ...[const SizedBox(width: FrostGap.inline), close],
             ],
           );
+    const pillMargin = EdgeInsets.symmetric(horizontal: FrostGap.inline, vertical: FrostGap.inline);
+    final pillHeight = height - pillMargin.vertical;
     final pill = AnimatedContainer(
-      duration: FrostMotion.hover,
+      duration: FrostMotion.duration(context, FrostMotion.hover),
       curve: FrostMotion.hoverCurve,
-      margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
-      padding: EdgeInsets.symmetric(horizontal: compact ? 0 : 10),
-      decoration: BoxDecoration(
+      margin: pillMargin,
+      padding: EdgeInsets.symmetric(horizontal: compact ? 0 : FrostGap.related),
+      decoration: ShapeDecoration(
         color: active
-            ? tokens.pressedSurface
+            ? tokens.selectionFill
             : hovered
-            ? tokens.hoverSurface
-            : tokens.hoverSurface.withValues(alpha: 0),
-        borderRadius: BorderRadius.circular(8),
+            ? tokens.fillSubtle
+            : tokens.fillSubtle.withValues(alpha: 0),
+        shape: FrostRadius.shape(context, FrostRadius.forHeight(pillHeight)),
       ),
-      child: content,
+      child: TweenAnimationBuilder<Color?>(
+        tween: ColorTween(end: ink),
+        duration: FrostMotion.duration(context, FrostMotion.hover),
+        curve: FrostMotion.hoverCurve,
+        builder: (context, color, _) => DefaultTextStyle(
+          style: FrostTypography.of(context).style(FrostTextRole.footnote).copyWith(color: color),
+          child: IconTheme(
+            data: IconThemeData(color: color),
+            child: content,
+          ),
+        ),
+      ),
     );
     return IgnorePointer(
       ignoring: item.leaving,
@@ -695,7 +714,11 @@ class _FrostTabStripState<T extends Object> extends State<FrostTabStrip<T>> with
                     if (separator)
                       Align(
                         alignment: AlignmentDirectional.centerStart,
-                        child: SizedBox(width: 1, height: 16, child: ColoredBox(color: tokens.separator)),
+                        child: SizedBox(
+                          width: _separatorThickness,
+                          height: _separatorLength,
+                          child: ColoredBox(color: tokens.separator),
+                        ),
                       ),
                   ],
                 ),
@@ -710,64 +733,5 @@ class _FrostTabStripState<T extends Object> extends State<FrostTabStrip<T>> with
   void _activate(T tab) {
     final index = widget.controller.tabs.indexOf(tab);
     if (index >= 0) widget.controller.activate(index);
-  }
-}
-
-/// A small round icon button in the tab row.
-class _StripButton extends StatefulWidget {
-  const _StripButton({required this.icon, required this.tooltip, required this.size, required this.iconSize, required this.onPressed});
-
-  final FrostIconData icon;
-  final String tooltip;
-  final double size;
-  final double iconSize;
-  final VoidCallback onPressed;
-
-  @override
-  State<_StripButton> createState() => _StripButtonState();
-}
-
-class _StripButtonState extends State<_StripButton> {
-  bool _hovered = false;
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = FrostThemeTokens.of(context);
-    return Tooltip(
-      message: widget.tooltip,
-      excludeFromSemantics: true,
-      child: Semantics(
-        button: true,
-        label: widget.tooltip,
-        onTap: widget.onPressed,
-        child: MouseRegion(
-          onEnter: (_) => setState(() => _hovered = true),
-          onExit: (_) => setState(() => _hovered = _pressed = false),
-          child: GestureDetector(
-            onTapDown: (_) => setState(() => _pressed = true),
-            onTapCancel: () => setState(() => _pressed = false),
-            onTapUp: (_) => setState(() => _pressed = false),
-            onTap: widget.onPressed,
-            child: AnimatedContainer(
-              duration: FrostMotion.hover,
-              curve: FrostMotion.hoverCurve,
-              width: widget.size,
-              height: widget.size,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: _pressed
-                    ? tokens.pressedSurface
-                    : _hovered
-                    ? tokens.hoverSurface
-                    : tokens.hoverSurface.withValues(alpha: 0),
-              ),
-              alignment: Alignment.center,
-              child: FrostIcon(widget.icon, size: widget.iconSize, color: tokens.textSecondary),
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }

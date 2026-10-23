@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../primitives/_page_outline.dart';
+
 /// One window-edge scrollbar for a coordinated header and the selected tab.
 /// Inner tab viewports do not own scrollbars. The adapter owns only its own
 /// position; it never attaches to a position owned by NestedScrollView.
@@ -87,6 +89,7 @@ class _FrostNestedPageScrollbarState extends State<FrostNestedPageScrollbar> {
   @override
   Widget build(BuildContext context) => Scrollbar(
     controller: _controller,
+    scrollbarOrientation: FrostPageOutline.channelOf(context) > 0 ? ScrollbarOrientation.right : null,
     thumbVisibility: true,
     notificationPredicate: (notification) => notification.metrics is _NestedPageMetrics,
     child: NotificationListener<ScrollMetricsNotification>(

@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
-/// The shell is the single owner of ordinary desktop page back navigation.
+/// The horizontal shell owns ordinary page back; vertical layouts use page headers.
 class FrostShellNavigationScope extends InheritedWidget {
   const FrostShellNavigationScope({
     required this.ownsBackControl,
@@ -13,6 +13,9 @@ class FrostShellNavigationScope extends InheritedWidget {
     super.key,
   });
 
+  /// True when a horizontal shell supplies the fixed Back control. Page headers
+  /// and custom page navigation must omit their ordinary Back in that case.
+  /// A standalone route outside the shell still owns its own close/back control.
   final bool ownsBackControl;
   final bool canGoBack;
   final VoidCallback goBack;

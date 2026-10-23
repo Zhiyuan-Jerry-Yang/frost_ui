@@ -1,13 +1,20 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:frost_ui/src/foundation/metrics.dart';
-import 'package:frost_ui/src/foundation/tokens.dart';
-import 'package:frost_ui/src/layout/auto_scaffold.dart';
-import 'package:frost_ui/src/layout/column_placement.dart';
-import 'package:frost_ui/src/navigation/shell_navigation_scope.dart';
-import 'package:frost_ui/src/surface/ambient_backdrop.dart';
-import 'package:frost_ui/src/surface/surface.dart';
+import 'package:flutter/scheduler.dart';
+
+import '../foundation/metrics.dart';
+import '../foundation/radius.dart';
+import '../foundation/scope.dart';
+import '../foundation/tokens.dart';
+import '../motion/_material_reveal.dart';
+import '../navigation/shell_navigation_scope.dart';
+import '../primitives/_page_outline.dart';
+import '../primitives/surface.dart';
+import 'auto_scaffold.dart' show FrostAutoScaffold;
+import 'window_caption_scope.dart';
+
+part 'pinned_chrome_glass.dart';
 
 /// A bar pinned over the top of a scrolling body. The body scrolls beneath
 /// the bar, and the bar's glass material appears once content is actually
@@ -17,22 +24,22 @@ import 'package:frost_ui/src/surface/surface.dart';
 /// insets the scrollbar; scroll views add [FrostChromeSpacer] as their first
 /// sliver so the first item starts below the bar.
 ///
+/// System top and horizontal safe areas surround chrome, without changing its
+/// own height. Chrome descendants receive consumed MediaQuery padding. Nested
+/// pinned bars do not mistake the body's reserved bar height for a system inset.
+///
 /// Scrolling over the bar scrolls the list beneath it: wheel and drag input
 /// that no control in the bar takes goes to the vertical scroll view under
 /// the pointer.
 class FrostPinnedChrome extends StatefulWidget {
-  const FrostPinnedChrome({required this.chrome, required this.body, this.extent, this.estimatedExtent = kToolbarHeight, this.columnMaxWidth, super.key});
+  const FrostPinnedChrome({required this.chrome, required this.body, this.extent, super.key});
 
   /// Fixed height of the bar, including any top safe area it covers. When
-  /// null the bar is measured, starting from [estimatedExtent].
+  /// null the bar is measured during layout before the body is laid out.
   final double? extent;
-  final double estimatedExtent;
+
   final Widget chrome;
   final Widget body;
-
-  /// The width of the page's content column; see
-  /// [FrostPinnedChromeGlass.columnMaxWidth].
-  final double? columnMaxWidth;
 
   @override
   State<FrostPinnedChrome> createState() => _FpPinnedChromeState();
@@ -43,18 +50,21 @@ class _FpPinnedChromeState extends State<FrostPinnedChrome> {
   /// of scrolling, so the bar stops wherever the finger stops instead of
   /// snapping in at a threshold.
   double _coverage = 0;
-  double? _measured;
+
   final _bodyKey = GlobalKey();
 
   /// Vertical scroll views in the body, gathered from their metrics
   /// notifications; input over the bar goes to the one under the pointer.
   final _scrollables = <ScrollableState>{};
   Drag? _drag;
+  ScrollMetrics? _pendingMetrics;
+  bool _coverageUpdateScheduled = false;
 
   static const _revealDistance = 24.0;
 
   bool _handleMetrics(ScrollMetricsNotification notification) {
     _track(notification.context);
+    _refreshCoverage(notification.metrics);
     return false;
   }
 
@@ -111,72 +121,115 @@ class _FpPinnedChromeState extends State<FrostPinnedChrome> {
 
   bool _handleScroll(ScrollNotification notification) {
     _track(notification.context);
-    final metrics = notification.metrics;
-    if (metrics.axis != Axis.vertical) return false;
-    final coverage = (metrics.extentBefore / _revealDistance).clamp(0.0, 1.0);
-    if (coverage != _coverage) setState(() => _coverage = coverage);
+    _refreshCoverage(notification.metrics);
     return false;
   }
 
-  void _handleChromeSize(Size size) {
-    if (widget.extent != null || size.height == _measured) return;
-    // Layout cannot rebuild the body; apply the new inset on the next frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && size.height != _measured) setState(() => _measured = size.height);
-    });
+  void _refreshCoverage(ScrollMetrics metrics) {
+    if (metrics.axis != Axis.vertical) return;
+    if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
+      // Restoring a scrolled pane or changing its content can start/end a
+      // ballistic activity inside applyContentDimensions. Do not interrupt that
+      // layout with setState: only the paint-only glass coverage needs updating.
+      _pendingMetrics = metrics;
+      if (!_coverageUpdateScheduled) {
+        _coverageUpdateScheduled = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _coverageUpdateScheduled = false;
+          final pending = _pendingMetrics;
+          _pendingMetrics = null;
+          if (mounted && pending != null) _applyCoverage(pending);
+        });
+      }
+      return;
+    }
+    // A newer input/metrics event supersedes any queued layout notification.
+    _pendingMetrics = null;
+    _applyCoverage(metrics);
+  }
+
+  void _applyCoverage(ScrollMetrics metrics) {
+    _scrollables.removeWhere((scrollable) => !scrollable.mounted);
+    // Independently scrolling panes share one band. A pane returning to zero
+    // must not hide glass while another pane still has content under the bar.
+    var coverage = (metrics.extentBefore / _revealDistance).clamp(0.0, 1.0);
+    for (final scrollable in _scrollables) {
+      final position = scrollable.position;
+      if (position.hasContentDimensions) {
+        final amount = (position.extentBefore / _revealDistance).clamp(0.0, 1.0);
+        if (amount > coverage) coverage = amount;
+      }
+    }
+    if (coverage != _coverage) setState(() => _coverage = coverage);
   }
 
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
-    final extent = widget.extent ?? _measured ?? widget.estimatedExtent;
-    return Stack(
+    // Body top padding describes chrome, not the system status bar. Only the
+    // outer pinned bar consumes the system top; side insets remain local.
+    final systemTop = _PinnedBodyScope.isInside(context) ? 0.0 : media.padding.top;
+    final safeInsets = EdgeInsets.only(top: systemTop, left: media.padding.left, right: media.padding.right);
+    final chrome = Padding(
+      padding: safeInsets,
+      child: MediaQuery.removePadding(
+        context: context,
+        removeTop: true,
+        removeLeft: true,
+        removeRight: true,
+        child: widget.extent != null ? SizedBox.expand(child: widget.chrome) : widget.chrome,
+      ),
+    );
+
+    return CustomMultiChildLayout(
+      delegate: _PinnedLayoutDelegate(widget.extent),
       children: [
-        MediaQuery(
-          key: _bodyKey,
-          data: media.copyWith(
-            padding: media.padding.copyWith(top: extent),
-            viewPadding: media.viewPadding.copyWith(top: extent),
-          ),
-          // Until the bar is measured the body would sit at the estimated
-          // inset and then shift; keep it invisible for that one frame so it
-          // first appears at its final position.
-          child: Opacity(
-            opacity: widget.extent != null || _measured != null ? 1 : 0,
-            child: NotificationListener<ScrollMetricsNotification>(
-              onNotification: _handleMetrics,
-              child: NotificationListener<ScrollNotification>(onNotification: _handleScroll, child: widget.body),
-            ),
+        LayoutId(
+          id: _PinnedSlot.body,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // The delegate lays out chrome first and encodes its measured
+              // height in minHeight, so this body builds correctly in this frame.
+              final extent = constraints.minHeight;
+              return SizedBox.expand(
+                child: MediaQuery(
+                  key: _bodyKey,
+                  data: media.copyWith(
+                    padding: media.padding.copyWith(top: extent),
+                    viewPadding: media.viewPadding.copyWith(top: extent),
+                  ),
+                  child: _PinnedBodyScope(
+                    child: NotificationListener<ScrollMetricsNotification>(
+                      onNotification: _handleMetrics,
+                      child: NotificationListener<ScrollNotification>(onNotification: _handleScroll, child: widget.body),
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
-        Positioned(
-          left: 0,
-          top: 0,
-          right: 0,
-          height: widget.extent,
-          child: _SizeReporter(
-            onSize: _handleChromeSize,
-            child: Listener(
-              onPointerSignal: _handlePointerSignal,
-              child: RawGestureDetector(
-                gestures: {
-                  VerticalDragGestureRecognizer: GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer>(
-                    () => VerticalDragGestureRecognizer(supportedDevices: ScrollConfiguration.of(context).dragDevices),
-                    (recognizer) => recognizer
-                      ..supportedDevices = ScrollConfiguration.of(context).dragDevices
-                      ..onStart = _handleDragStart
-                      ..onUpdate = ((details) => _drag?.update(details))
-                      ..onEnd = ((details) => _drag?.end(details))
-                      ..onCancel = (() => _drag?.cancel()),
-                  ),
-                },
-                child: FrostPinnedChromeGlass(
-                  opacity: _coverage,
-                  columnMaxWidth: widget.columnMaxWidth,
-                  // The value already follows the scroll position frame by frame.
-                  animate: false,
-                  child: widget.extent != null ? SizedBox.expand(child: widget.chrome) : widget.chrome,
+        LayoutId(
+          id: _PinnedSlot.chrome,
+          child: Listener(
+            onPointerSignal: _handlePointerSignal,
+            child: RawGestureDetector(
+              gestures: {
+                VerticalDragGestureRecognizer: GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer>(
+                  () => VerticalDragGestureRecognizer(supportedDevices: ScrollConfiguration.of(context).dragDevices),
+                  (recognizer) => recognizer
+                    ..supportedDevices = ScrollConfiguration.of(context).dragDevices
+                    ..onStart = _handleDragStart
+                    ..onUpdate = ((details) => _drag?.update(details))
+                    ..onEnd = ((details) => _drag?.end(details))
+                    ..onCancel = (() => _drag?.cancel()),
                 ),
+              },
+              child: FrostPinnedChromeGlass(
+                opacity: FrostPinnedChromeMaterial.enabledOf(context) ? _coverage : 0,
+                // The value already follows the scroll position frame by frame.
+                animate: false,
+                child: chrome,
               ),
             ),
           ),
@@ -186,28 +239,35 @@ class _FpPinnedChromeState extends State<FrostPinnedChrome> {
   }
 }
 
-class _SizeReporter extends SingleChildRenderObjectWidget {
-  const _SizeReporter({required this.onSize, required super.child});
-
-  final ValueChanged<Size> onSize;
-
+// The body keeps the public MediaQuery/spacer contract, but its top padding
+// must never be consumed as another system safe area by a nested pinned bar.
+class _PinnedBodyScope extends InheritedWidget {
+  const _PinnedBodyScope({required super.child});
+  static bool isInside(BuildContext context) => context.dependOnInheritedWidgetOfExactType<_PinnedBodyScope>() != null;
   @override
-  RenderObject createRenderObject(BuildContext context) => _RenderSizeReporter(onSize);
-
-  @override
-  void updateRenderObject(BuildContext context, _RenderSizeReporter renderObject) => renderObject.onSize = onSize;
+  bool updateShouldNotify(_PinnedBodyScope oldWidget) => false;
 }
 
-class _RenderSizeReporter extends RenderProxyBox {
-  _RenderSizeReporter(this.onSize);
+enum _PinnedSlot { body, chrome }
 
-  ValueChanged<Size> onSize;
+class _PinnedLayoutDelegate extends MultiChildLayoutDelegate {
+  _PinnedLayoutDelegate(this.extent);
+  final double? extent;
 
   @override
-  void performLayout() {
-    super.performLayout();
-    onSize(size);
+  void performLayout(Size size) {
+    final fixed = extent?.clamp(0.0, size.height);
+    final chromeSize = layoutChild(
+      _PinnedSlot.chrome,
+      BoxConstraints(minWidth: size.width, maxWidth: size.width, minHeight: fixed ?? 0, maxHeight: fixed ?? size.height),
+    );
+    positionChild(_PinnedSlot.chrome, Offset.zero);
+    layoutChild(_PinnedSlot.body, BoxConstraints(minWidth: size.width, maxWidth: size.width, minHeight: chromeSize.height, maxHeight: size.height));
+    positionChild(_PinnedSlot.body, Offset.zero);
   }
+
+  @override
+  bool shouldRelayout(_PinnedLayoutDelegate oldDelegate) => extent != oldDelegate.extent;
 }
 
 /// First sliver of a scroll view under [FrostPinnedChrome].
@@ -222,173 +282,12 @@ class FrostChromeSpacer extends StatelessWidget {
 /// take a single leading sliver.
 Widget frostChromeSliverHeader(Widget? header) => SliverMainAxisGroup(slivers: [const FrostChromeSpacer(), ?header]);
 
-/// Which outer corners a [FrostPinnedChromeGlass] rounds. Bars that are pinned
-/// directly above one another share one outline: the upper one rounds its
-/// top corners, the lower one its bottom corners.
-enum FrostPinnedChromeCorners { all, top, bottom }
-
-/// The glass behind a pinned bar, shown while content passes beneath it,
-/// with the bar's own content as [child].
-///
-/// With the floating desktop sidebar the bar floats the same way: rounded,
-/// and inset so it sits the sidebar's margin away from both the sidebar and
-/// the window edge. The bar's content keeps its full-width layout but is
-/// clipped to the glass shape, so hover highlights never spill past the
-/// rounded corners; outside the shape the window background covers whatever
-/// scrolls beneath, so no sliver of content shows around the panel.
-/// Beside a flush sidebar the bar is flush too: a square band of glass over
-/// the page's content column only, closed by a hairline below.
-/// Compact layouts keep an edge-to-edge bar under the status bar.
-class FrostPinnedChromeGlass extends StatelessWidget {
-  const FrostPinnedChromeGlass({
-    required this.opacity,
-    this.child,
-    this.animate = true,
-    this.corners = FrostPinnedChromeCorners.all,
-    this.columnMaxWidth,
-    super.key,
-  });
-
-  final double opacity;
-  final Widget? child;
-
-  /// Ease [opacity] changes; pass false when it already follows scrolling.
-  final bool animate;
-  final FrostPinnedChromeCorners corners;
-
-  /// The width of the content column beneath a flush bar. The glass covers
-  /// only the column, centred like it, so a narrow column does not get a
-  /// window-wide band. Null covers the full width.
-  final double? columnMaxWidth;
-
-  /// Gap between floating panels and between a panel and the window edge.
-  static const floatingMargin = 8.0;
-
-  /// The page already starts this far to the right of the sidebar.
-  static const _sidebarGutter = 4.0;
-
-  static const _insets = EdgeInsetsDirectional.only(start: floatingMargin - _sidebarGutter, end: floatingMargin);
-
-  /// How far the glass sits inside the bar's edges: the floating margins on
-  /// desktop, none on compact edge-to-edge bars. Content anchored to the
-  /// bar's ends (a back or action button, a title) adds this to its usual
-  /// inset so it keeps the same distance from the glass edge as it would
-  /// from a screen edge. Rows already on the content column need nothing.
-  static EdgeInsetsDirectional insetsOf(BuildContext context) => _floats(context) ? _insets : EdgeInsetsDirectional.zero;
-
-  static bool _floats(BuildContext context) =>
-      FrostAutoScaffold.usesHorizontalLayoutOf(context) && (FrostShellNavigationScope.maybeOf(context)?.floatingChrome ?? true);
-
-  BorderRadius get _radius {
-    const radius = Radius.circular(FrostMetrics.groupRadius + 4);
-    return switch (corners) {
-      FrostPinnedChromeCorners.all => const BorderRadius.all(radius),
-      FrostPinnedChromeCorners.top => const BorderRadius.vertical(top: radius),
-      FrostPinnedChromeCorners.bottom => const BorderRadius.vertical(bottom: radius),
-    };
-  }
-
+// DetailLayout keeps one measured chrome slot while media controls turn into a
+// normal header. Only its material changes; body padding never changes on scroll.
+class FrostPinnedChromeMaterial extends InheritedWidget {
+  const FrostPinnedChromeMaterial({required this.enabled, required super.child, super.key});
+  final bool enabled;
+  static bool enabledOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<FrostPinnedChromeMaterial>()?.enabled ?? true;
   @override
-  Widget build(BuildContext context) {
-    final floating = _floats(context);
-    final Widget material;
-    if (floating) {
-      final shape = _InsetShape(insets: _insets.resolve(Directionality.of(context)), borderRadius: _radius);
-      material = Stack(
-        fit: StackFit.expand,
-        children: [
-          // Window background around the panel, so content scrolling under
-          // the bar does not peek through the margins and corner cut-outs.
-          ClipPath(clipper: shape.outside(), child: const FrostAmbientBackdrop()),
-          Padding(
-            padding: _insets,
-            child: FrostSurface(
-              role: FrostSurfaceRole.chrome,
-              borderRadius: _radius,
-              join: switch (corners) {
-                FrostPinnedChromeCorners.all => FrostSurfaceJoin.none,
-                FrostPinnedChromeCorners.top => FrostSurfaceJoin.below,
-                FrostPinnedChromeCorners.bottom => FrostSurfaceJoin.above,
-              },
-              child: const SizedBox.expand(),
-            ),
-          ),
-        ],
-      );
-      final layer = IgnorePointer(
-        child: animate
-            ? AnimatedOpacity(opacity: opacity, duration: FrostMotion.duration(context, FrostMotion.hover), child: material)
-            : Opacity(opacity: opacity, child: material),
-      );
-      return Stack(
-        fit: StackFit.passthrough,
-        children: [
-          Positioned.fill(child: layer),
-          if (child case final child?) ClipPath(clipper: shape, child: child),
-        ],
-      );
-    }
-    const band = FrostSurface(
-      role: FrostSurfaceRole.chrome,
-      borderRadius: BorderRadius.zero,
-      edge: FrostSurfaceEdge.none,
-      elevated: false,
-      child: SizedBox.expand(),
-    );
-    if (FrostAutoScaffold.usesHorizontalLayoutOf(context)) {
-      // Flush beside a flush sidebar: the column's band, closed below by a
-      // hairline unless another bar continues it.
-      final line = FrostThemeTokens.of(context).line;
-      final columnMaxWidth = this.columnMaxWidth;
-      material = Align(
-        alignment: FrostColumnPlacement.alignmentOf(context),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: columnMaxWidth == null ? double.infinity : FrostColumnPlacement.columnWidth(context, columnMaxWidth)),
-          child: DecoratedBox(
-            position: DecorationPosition.foreground,
-            decoration: BoxDecoration(
-              border: corners == FrostPinnedChromeCorners.top ? null : Border(bottom: BorderSide(color: line)),
-            ),
-            child: band,
-          ),
-        ),
-      );
-    } else {
-      material = band;
-    }
-    final layer = IgnorePointer(
-      child: animate
-          ? AnimatedOpacity(opacity: opacity, duration: FrostMotion.duration(context, FrostMotion.hover), child: material)
-          : Opacity(opacity: opacity, child: material),
-    );
-    return Stack(
-      fit: StackFit.passthrough,
-      children: [
-        Positioned.fill(child: layer),
-        ?child,
-      ],
-    );
-  }
-}
-
-/// The floating glass shape: the bar's rect inset by [insets], rounded by
-/// [borderRadius]. [outside] clips to everything in the bar except it.
-class _InsetShape extends CustomClipper<Path> {
-  const _InsetShape({required this.insets, required this.borderRadius, this.inverse = false});
-
-  final EdgeInsets insets;
-  final BorderRadius borderRadius;
-  final bool inverse;
-
-  _InsetShape outside() => _InsetShape(insets: insets, borderRadius: borderRadius, inverse: true);
-
-  @override
-  Path getClip(Size size) {
-    final panel = Path()..addRRect(borderRadius.toRRect(insets.deflateRect(Offset.zero & size)));
-    if (!inverse) return panel;
-    return Path.combine(PathOperation.difference, Path()..addRect(Offset.zero & size), panel);
-  }
-
-  @override
-  bool shouldReclip(_InsetShape oldClipper) => insets != oldClipper.insets || borderRadius != oldClipper.borderRadius || inverse != oldClipper.inverse;
+  bool updateShouldNotify(FrostPinnedChromeMaterial oldWidget) => enabled != oldWidget.enabled;
 }

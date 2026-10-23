@@ -1,168 +1,277 @@
+import 'dart:ui' show FlutterView;
 import 'package:flutter/widgets.dart';
-import 'package:frost_ui/src/navigation/shell.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart';
 
-/// The part of a flush sidebar that continues into a Flutter-drawn caption,
-/// so the sidebar reads as one column from the top of the window.
-@immutable
-class FrostCaptionSidebar {
-  const FrostCaptionSidebar({required this.width, required this.iconAxis, required this.expansion, required this.style});
+/// Native window actions and layout-time caption hit-region collection.
+class FrostWindowCaptionScope extends StatefulWidget {
+  const FrostWindowCaptionScope({required this.child, this.window, this.systemBackdropActive = false, this.systemBackdropAvailable = false, super.key});
 
-  /// The sidebar's right edge from the window's left.
-  final double width;
-
-  /// Horizontal centre of the sidebar's icon column, from the window's left;
-  /// a mark in the caption centres on it.
-  final double iconAxis;
-
-  /// How far the sidebar is expanded, from 0 (collapsed) to 1.
-  final double expansion;
-
-  /// Draws the caption's part of the sidebar with [FrostSidebarStyle.frame].
-  final FrostSidebarStyle style;
-
-  @override
-  bool operator ==(Object other) =>
-      other is FrostCaptionSidebar && other.width == width && other.iconAxis == iconAxis && other.expansion == expansion && other.style == style;
-
-  @override
-  int get hashCode => Object.hash(width, iconAxis, expansion, style);
-}
-
-/// A value the pages hand up to the caption. The window frame owns and
-/// disposes it; a page that goes away clears it after the frame, which
-/// [clear] allows even if the window frame left too.
-class FrostCaptionSlot<T> extends ValueNotifier<T?> {
-  FrostCaptionSlot() : super(null);
-
-  bool _disposed = false;
-
-  void clear() {
-    if (!_disposed) value = null;
-  }
-
-  @override
-  void dispose() {
-    _disposed = true;
-    super.dispose();
-  }
-}
-
-/// Carries the [FrostCaptionSidebar] from the shell to the caption.
-class FrostCaptionSidebarNotifier extends FrostCaptionSlot<FrostCaptionSidebar> {}
-
-/// Carries what the pages draw in the caption between its leading part and
-/// the window buttons, such as a tab strip (see [FrostCaptionContent]). The
-/// caption keeps the rest of its width draggable.
-class FrostCaptionContentNotifier extends FrostCaptionSlot<WidgetBuilder> {}
-
-/// What a Flutter-drawn window caption above the pages tells them, and what
-/// it learns from them. Installed by the window frame (frost_window);
-/// absent where the platform draws its own title bar.
-class FrostWindowCaptionScope extends InheritedWidget {
-  const FrostWindowCaptionScope({required this.showsTitle, required super.child, this.sidebar, this.content, super.key});
-
-  /// Whether the caption shows the page title, so page headers can avoid
-  /// repeating it.
-  final bool showsTitle;
-
-  /// Where a shell whose sidebar continues into the caption reports it (see
-  /// [FrostSidebarStyle.continuesIntoCaption]); the caption listens. Null
-  /// when this caption does not continue a sidebar.
-  final FrostCaptionSidebarNotifier? sidebar;
-
-  /// Where pages put their caption content (see [FrostCaptionContent]); null
-  /// when this caption takes none.
-  final FrostCaptionContentNotifier? content;
-
-  static bool showsPageTitle(BuildContext context) => context.dependOnInheritedWidgetOfExactType<FrostWindowCaptionScope>()?.showsTitle ?? false;
-
-  /// The caption's sidebar notifier, without depending on the scope.
-  static FrostCaptionSidebarNotifier? sidebarOf(BuildContext context) => context.getInheritedWidgetOfExactType<FrostWindowCaptionScope>()?.sidebar;
-
-  /// The caption's content notifier, without depending on the scope.
-  static FrostCaptionContentNotifier? contentOf(BuildContext context) => context.getInheritedWidgetOfExactType<FrostWindowCaptionScope>()?.content;
-
-  @override
-  bool updateShouldNotify(FrostWindowCaptionScope oldWidget) =>
-      showsTitle != oldWidget.showsTitle || sidebar != oldWidget.sidebar || content != oldWidget.content;
-}
-
-/// Puts [content] in the window caption while this widget is mounted, above
-/// [child]. Where no caption takes content (the platform draws the title
-/// bar) it stands as a bar of [fallbackHeight] above [child] instead.
-class FrostCaptionContent extends StatefulWidget {
-  const FrostCaptionContent({required this.content, required this.child, this.fallbackHeight = 40, super.key});
-
-  final WidgetBuilder content;
+  final FrostWindowActions? window;
   final Widget child;
-  final double fallbackHeight;
+
+  /// Whether the native host is currently drawing a system backdrop.
+  /// A requested but unsupported backdrop must leave this false.
+  final bool systemBackdropActive;
+
+  /// Actual native backdrop capability, independent of the selected material.
+  final bool systemBackdropAvailable;
+  static bool systemBackdropAvailableOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_CaptionScope>()?.owner.systemBackdropAvailable ?? false;
+
+  static bool systemBackdropActiveOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<_CaptionScope>()?.owner.systemBackdropActive ?? false;
+
+  static FrostWindowActions? windowOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<_CaptionScope>()?.owner.window;
 
   @override
-  State<FrostCaptionContent> createState() => _FrostCaptionContentState();
+  State<FrostWindowCaptionScope> createState() => _CaptionScopeState();
 }
 
-class _FrostCaptionContentState extends State<FrostCaptionContent> {
-  FrostCaptionContentNotifier? _slot;
-  WidgetBuilder? _published;
+class _CaptionScope extends InheritedWidget {
+  const _CaptionScope({required this.owner, required this.collector, required super.child});
+  final FrostWindowCaptionScope owner;
+  final _CaptionScopeState collector;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final slot = FrostWindowCaptionScope.contentOf(context);
-    if (slot != _slot) {
-      _release();
-      _slot = slot;
-      _publish();
+  bool updateShouldNotify(_CaptionScope oldWidget) =>
+      owner.window != oldWidget.owner.window ||
+      owner.systemBackdropActive != oldWidget.owner.systemBackdropActive ||
+      owner.systemBackdropAvailable != oldWidget.owner.systemBackdropAvailable;
+}
+
+/// Native hit-test coordinates are logical pixels relative to the Flutter view.
+enum FrostHitKind { caption, maximize }
+
+@immutable
+class FrostHitRegion {
+  const FrostHitRegion({required this.rect, required this.kind});
+  final Rect rect;
+  final FrostHitKind kind;
+
+  @override
+  bool operator ==(Object other) => other is FrostHitRegion && other.rect == rect && other.kind == kind;
+  @override
+  int get hashCode => Object.hash(rect, kind);
+}
+
+@immutable
+class FrostCaptionState {
+  const FrostCaptionState({required this.maximized, required this.active, required this.maximizeHovered, required this.maximizePressed, required this.failed});
+  final bool maximized;
+  final bool active;
+  final bool maximizeHovered;
+  final bool maximizePressed;
+  final bool failed;
+}
+
+abstract interface class FrostWindowActions implements Listenable {
+  FrostCaptionState get captionState;
+  Future<void> minimize();
+  Future<void> toggleMaximized();
+  Future<void> close();
+  Future<void> retry();
+  void updateHitRegions(List<FrostHitRegion> regions);
+}
+
+class _CaptionScopeState extends State<FrostWindowCaptionScope> {
+  final _regions = <_CaptionRegionBox>{};
+  List<FrostHitRegion> _last = const [];
+  bool _queued = false;
+
+  void _queueSync() {
+    if (_queued || widget.window == null) return;
+    _queued = true;
+    // Layout/paint schedule this before post-frame callbacks run, so even the
+    // first pump publishes final geometry without a corrective rebuild.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _queued = false;
+      if (!mounted || widget.window == null) return;
+      final regions = List.of(_regions).map((box) => box.region).nonNulls.toSet().toList()
+        ..sort((a, b) {
+          final av = [a.kind.index.toDouble(), a.rect.left, a.rect.top, a.rect.right, a.rect.bottom];
+          final bv = [b.kind.index.toDouble(), b.rect.left, b.rect.top, b.rect.right, b.rect.bottom];
+          for (var i = 0; i < av.length; i++) {
+            final order = av[i].compareTo(bv[i]);
+            if (order != 0) return order;
+          }
+          return 0;
+        });
+      // Observe later frames without requesting them, including changes behind
+      // repaint boundaries where a hidden region never paints itself.
+      _queueSync();
+      if (listEquals(_last, regions)) return;
+      _last = List.unmodifiable(regions);
+      widget.window!.updateHitRegions(_last);
+    });
+  }
+
+  @override
+  void didUpdateWidget(FrostWindowCaptionScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.window != widget.window) {
+      if (_last.isNotEmpty) oldWidget.window?.updateHitRegions(const []);
+      _last = const [];
+      _queueSync();
     }
   }
 
   @override
-  void didUpdateWidget(FrostCaptionContent oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.content != widget.content) _publish();
-  }
-
-  // The caption is built before the pages, so it learns of new content after
-  // this frame; a fresh builder each time makes it rebuild.
-  void _publish() {
-    final slot = _slot;
-    if (slot == null) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _slot != slot) return;
-      final content = widget.content;
-      final published = _published = (context) => content(context);
-      slot.value = published;
-    });
-  }
-
-  void _release() {
-    final slot = _slot;
-    final published = _published;
-    _published = null;
-    if (slot == null || published == null) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (slot.value == published) slot.clear();
-    });
-  }
-
-  @override
   void dispose() {
-    _release();
+    if (_last.isNotEmpty) widget.window?.updateHitRegions(const []);
     super.dispose();
   }
 
   @override
+  Widget build(BuildContext context) => _CaptionScope(
+    owner: widget,
+    collector: this,
+    child: widget.window == null ? widget.child : _CaptionLayout(onChanged: _queueSync, child: widget.child),
+  );
+}
+
+/// Marks only the native caption or maximize area; it adds no pointer handler.
+/// Regions on a covered route are inactive even when a translucent page leaves
+/// them painted. This also checks enclosing routes across nested Navigators.
+class FrostCaptionRegion extends StatelessWidget {
+  const FrostCaptionRegion({required this.kind, required this.child, super.key});
+  final FrostHitKind kind;
+  final Widget child;
+
+  @override
   Widget build(BuildContext context) {
-    if (_slot != null) return widget.child;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          height: widget.fallbackHeight,
-          child: Builder(builder: widget.content),
-        ),
-        Expanded(child: widget.child),
-      ],
-    );
+    final scope = context.dependOnInheritedWidgetOfExactType<_CaptionScope>();
+    if (scope?.owner.window == null) return child;
+    final routes = <ModalRoute<Object?>>[];
+    // Keep route identities, whose isCurrent state is read at every sync. A
+    // nested page can remain current while its enclosing shell is covered by
+    // a root viewer, so checking only the nearest route is insufficient.
+    for (var route = ModalRoute.of<Object?>(context); route != null;) {
+      if (routes.contains(route)) break;
+      routes.add(route);
+      final navigator = route.navigator;
+      route = navigator == null ? null : ModalRoute.of<Object?>(navigator.context);
+    }
+    return _CaptionRegion(collector: scope!.collector, kind: kind, routes: routes, child: child);
+  }
+}
+
+class _CaptionRegion extends SingleChildRenderObjectWidget {
+  const _CaptionRegion({required this.collector, required this.kind, required this.routes, required super.child});
+  final _CaptionScopeState collector;
+  final FrostHitKind kind;
+  final List<ModalRoute<Object?>> routes;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _CaptionRegionBox(collector, kind, routes, context, View.of(context));
+  @override
+  void updateRenderObject(BuildContext context, _CaptionRegionBox renderObject) {
+    renderObject.update(collector, kind, routes, View.of(context));
+  }
+}
+
+class _CaptionRegionBox extends RenderProxyBox {
+  _CaptionRegionBox(this.collector, this.kind, this.routes, this.context, this.view);
+  final BuildContext context;
+  FlutterView view;
+  _CaptionScopeState collector;
+  FrostHitKind kind;
+  List<ModalRoute<Object?>> routes;
+
+  void update(_CaptionScopeState nextCollector, FrostHitKind nextKind, List<ModalRoute<Object?>> nextRoutes, FlutterView nextView) {
+    if (collector != nextCollector && attached) {
+      collector._regions.remove(this);
+      collector._queueSync();
+      nextCollector._regions.add(this);
+    }
+    collector = nextCollector;
+    kind = nextKind;
+    routes = nextRoutes;
+    view = nextView;
+    collector._queueSync();
+  }
+
+  FrostHitRegion? get region {
+    if (!attached || !hasSize || size.isEmpty || routes.any((route) => !route.isCurrent)) return null;
+    final pipeline = owner;
+    if (pipeline == null || !context.mounted) return null;
+    // Reparenting can temporarily leave an attached node outside its owner's
+    // root. Only coordinates rooted in this live Flutter view are native hits.
+    RenderObject root = this;
+    while (root.parent != null) {
+      final ancestor = root.parent!;
+      if (ancestor.owner != pipeline) return null;
+      root = ancestor;
+    }
+    if (root is! RenderView || root.flutterView != view || pipeline.rootNode != root || !RendererBinding.instance.renderViews.contains(root)) return null;
+    var visible = true;
+    context.visitAncestorElements((element) {
+      if (element.widget case Visibility(visible: false)) {
+        visible = false;
+        return false;
+      }
+      return true;
+    });
+    if (!visible) return null;
+    RenderObject descendant = this;
+    for (RenderObject? ancestor = parent; ancestor != null; ancestor = ancestor.parent) {
+      if (!ancestor.paintsChild(descendant)) return null;
+      descendant = ancestor;
+    }
+    final rect = MatrixUtils.transformRect(getTransformTo(null), Offset.zero & size);
+    if (rect.isEmpty || !rect.isFinite) return null;
+    return FrostHitRegion(rect: rect, kind: kind);
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    collector._regions.add(this);
+    collector._queueSync();
+  }
+
+  @override
+  void detach() {
+    collector._regions.remove(this);
+    collector._queueSync();
+    super.detach();
+  }
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    collector._queueSync();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    super.paint(context, offset);
+    collector._queueSync();
+  }
+}
+
+// Observe the whole scope as well: hiding a retained Offstage descendant can
+// skip that region's own layout and paint while its old geometry still exists.
+class _CaptionLayout extends SingleChildRenderObjectWidget {
+  const _CaptionLayout({required this.onChanged, required super.child});
+  final VoidCallback onChanged;
+  @override
+  RenderObject createRenderObject(BuildContext context) => _CaptionLayoutBox(onChanged);
+  @override
+  void updateRenderObject(BuildContext context, _CaptionLayoutBox renderObject) => renderObject.onChanged = onChanged;
+}
+
+class _CaptionLayoutBox extends RenderProxyBox {
+  _CaptionLayoutBox(this.onChanged);
+  VoidCallback onChanged;
+  @override
+  void performLayout() {
+    super.performLayout();
+    onChanged();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    super.paint(context, offset);
+    onChanged();
   }
 }

@@ -1,12 +1,15 @@
 import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
-import 'package:frost_ui/src/foundation/metrics.dart';
+
+import '../foundation/metrics.dart';
+import '../primitives/_page_outline.dart';
+import '_content_padding.dart';
 
 /// Where content columns sit in their viewport.
 enum FrostColumnAlignment { start, center, end }
 
-/// Places every content column below: centred by default; in a pane of a
+/// Places every content column below: start-aligned by default; in a pane of a
 /// split view, against the divider, so both panes meet in the middle of the
 /// window while each viewport still reaches its own edge (and keeps its
 /// scrollbar there). [maxWidth] caps the columns to the pane's content width.
@@ -31,18 +34,20 @@ class FrostColumnPlacement extends InheritedWidget {
   /// the reading inset.
   static EdgeInsets columnPadding(BuildContext context, double width, {double maxWidth = FrostMetrics.contentMaxWidth}) {
     final placement = maybeOf(context);
-    final inset = maxWidth == FrostMetrics.readingMaxWidth ? FrostMetrics.pageInset : FrostMetrics.browseInset(width);
+    final channel = FrostPageOutline.channelOf(context);
+    final contentWidth = FrostPageOutline.contentWidth(context, width);
+    final inset = FrostContentPadding.of(context) ?? EdgeInsets.symmetric(horizontal: FrostMetrics.browseInset(contentWidth));
     final column = placement?.maxWidth == null ? maxWidth : math.min(maxWidth, placement!.maxWidth!);
-    final free = math.max(0.0, width - column);
-    return switch (placement?.alignment ?? FrostColumnAlignment.center) {
-      FrostColumnAlignment.center => EdgeInsets.symmetric(horizontal: free / 2 + inset),
-      FrostColumnAlignment.start => EdgeInsets.only(left: inset, right: free + inset),
-      FrostColumnAlignment.end => EdgeInsets.only(left: free + inset, right: inset),
+    final free = math.max(0.0, contentWidth - column);
+    return switch (placement?.alignment ?? FrostColumnAlignment.start) {
+      FrostColumnAlignment.center => EdgeInsets.only(left: free / 2 + inset.left, right: free / 2 + inset.right + channel),
+      FrostColumnAlignment.start => EdgeInsets.only(left: inset.left, right: free + inset.right + channel),
+      FrostColumnAlignment.end => EdgeInsets.only(left: free + inset.left, right: inset.right + channel),
     };
   }
 
   /// Where a box of [columnWidth] sits in its viewport here.
-  static Alignment alignmentOf(BuildContext context) => switch (maybeOf(context)?.alignment ?? FrostColumnAlignment.center) {
+  static Alignment alignmentOf(BuildContext context) => switch (maybeOf(context)?.alignment ?? FrostColumnAlignment.start) {
     FrostColumnAlignment.center => Alignment.topCenter,
     FrostColumnAlignment.start => Alignment.topLeft,
     FrostColumnAlignment.end => Alignment.topRight,
