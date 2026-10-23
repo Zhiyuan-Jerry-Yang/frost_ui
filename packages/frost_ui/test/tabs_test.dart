@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frost_ui/frost_ui.dart';
@@ -28,35 +29,115 @@ class _CounterState extends State<_Counter> {
 
 List<String> _names(FrostTabsController<_Tab> controller) => [for (final tab in controller.tabs) tab.name];
 
-Widget _host(FrostTabsController<_Tab> controller, {VoidCallback? onNewTab}) => frostTestApp(
-  Scaffold(
-    body: Column(
-      children: [
-        SizedBox(
-          height: 40,
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: FrostTabStrip<_Tab>(
-              controller: controller,
-              label: (context, tab) => FrostTabLabel(title: 'T.${tab.name}'),
-              closeTooltip: 'L.close',
-              newTabTooltip: 'L.newTab',
-              newTabIcon: const FrostIconData.glyph(IconData(0xe001)),
-              onNewTab: onNewTab ?? () {},
+Widget _host(FrostTabsController<_Tab> controller, {VoidCallback? onNewTab, FrostDensity density = FrostDensity.comfortable, double stripHeight = 40}) =>
+    frostTestApp(
+      Scaffold(
+        body: Column(
+          children: [
+            SizedBox(
+              height: stripHeight,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FrostTabStrip<_Tab>(
+                  controller: controller,
+                  label: (context, tab) => FrostTabLabel(title: 'T.${tab.name}'),
+                  closeTooltip: 'L.close',
+                  newTabTooltip: 'L.newTab',
+                  newTabIcon: const FrostIconData.glyph(IconData(0xe001)),
+                  onNewTab: onNewTab ?? () {},
+                ),
+              ),
             ),
-          ),
+            Expanded(
+              child: FrostTabHost<_Tab>(controller: controller, onNewTab: onNewTab, builder: (context, tab) => _Counter(tab.name)),
+            ),
+          ],
         ),
-        Expanded(
-          child: FrostTabHost<_Tab>(controller: controller, onNewTab: onNewTab, builder: (context, tab) => _Counter(tab.name)),
-        ),
-      ],
-    ),
-  ),
-);
+      ),
+      density: density,
+    );
 
 Rect _tabRect(WidgetTester tester, String name) => tester.getRect(find.ancestor(of: find.text('T.$name'), matching: find.byType(Positioned)).first);
 
 void main() {
+  testWidgets('selected strip uses selection fill/ink and shared 20px close targets', (tester) async {
+    final controller = FrostTabsController<_Tab>(initial: _Tab('a'));
+    addTearDown(controller.dispose);
+    controller.open(_Tab('b'), activate: false);
+    await tester.pumpWidget(_host(controller));
+    await tester.pumpAndSettle();
+    final tokens = FrostThemeTokens.of(tester.element(find.byType(FrostTabStrip<_Tab>)));
+    final background = find.ancestor(of: find.text('T.a'), matching: find.byType(AnimatedContainer)).first;
+    final decorated = find.descendant(of: background, matching: find.byType(DecoratedBox)).first;
+    expect((tester.renderObject<RenderDecoratedBox>(decorated).decoration as ShapeDecoration).color, tokens.selectionFill);
+    expect(tester.renderObject<RenderParagraph>(find.text('T.a')).text.style!.color, tokens.selectionInk);
+    final close = findFrostTooltip('L.close').first;
+    final surface = find.descendant(of: close, matching: find.byType(FrostClickSurface));
+    expect(tester.getSize(surface), const Size(20, 20));
+    final shape =
+        (tester.renderObject<RenderDecoratedBox>(find.descendant(of: surface, matching: find.byType(DecoratedBox)).first).decoration as ShapeDecoration).shape
+            as RoundedSuperellipseBorder;
+    expect(shape.borderRadius.resolve(TextDirection.ltr).topLeft.x, FrostRadius.forHeight(20));
+    expect(tester.widget<FrostIcon>(find.descendant(of: surface, matching: find.byType(FrostIcon))).size, 14);
+    expect(tester.getSize(close).height, 32);
+    expect(_tabRect(tester, 'a').height, 40);
+    controller.activate(1);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 70));
+    final middle = tester.renderObject<RenderParagraph>(find.text('T.b')).text.style!.color;
+    expect(middle, isNot(tokens.selectionInk));
+    expect(middle, isNot(tokens.textSecondary));
+    await tester.pumpAndSettle();
+    expect(tester.renderObject<RenderParagraph>(find.text('T.b')).text.style!.color, tokens.selectionInk);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('tab selection radius follows its actual background height', (tester) async {
+    final controller = FrostTabsController<_Tab>(initial: _Tab('a'));
+    addTearDown(controller.dispose);
+    for (final density in FrostDensity.values) {
+      for (final height in [36.0, 40.0, 48.0]) {
+        await tester.pumpWidget(_host(controller, density: density, stripHeight: height));
+        await tester.pumpAndSettle();
+        final background = find.ancestor(of: find.text('T.a'), matching: find.byType(AnimatedContainer)).first;
+        final container = tester.widget<AnimatedContainer>(background);
+        final margin = container.margin!.resolve(TextDirection.ltr);
+        final actualHeight = tester.getSize(background).height - margin.vertical;
+        expect(actualHeight, height - 8);
+        final shape = (container.decoration! as ShapeDecoration).shape;
+        final borderRadius = switch (shape) {
+          RoundedSuperellipseBorder(:final borderRadius) => borderRadius,
+          RoundedRectangleBorder(:final borderRadius) => borderRadius,
+          _ => throw StateError('Unexpected tab selection shape: $shape'),
+        }.resolve(TextDirection.ltr);
+        expect(borderRadius, BorderRadius.circular(FrostRadius.forHeight(actualHeight)));
+        for (final radius in [borderRadius.topLeft, borderRadius.topRight, borderRadius.bottomLeft, borderRadius.bottomRight]) {
+          expect(radius.x, lessThanOrEqualTo(actualHeight * .30), reason: '$density strip height $height');
+          expect(radius.y, lessThanOrEqualTo(actualHeight * .30), reason: '$density strip height $height');
+        }
+        expect(tester.takeException(), isNull);
+      }
+    }
+  });
+
+  testWidgets('background tab separators keep their fixed geometry in both densities', (tester) async {
+    final controller = FrostTabsController<_Tab>(initial: _Tab('a'));
+    addTearDown(controller.dispose);
+    controller.open(_Tab('b'), activate: false);
+    controller.open(_Tab('c'), activate: false);
+    for (final density in FrostDensity.values) {
+      await tester.pumpWidget(_host(controller, density: density));
+      await tester.pumpAndSettle();
+      final tokens = FrostThemeTokens.of(tester.element(find.byType(FrostTabStrip<_Tab>)));
+      final separator = find.descendant(
+        of: find.byType(FrostTabStrip<_Tab>),
+        matching: find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == tokens.separator),
+      );
+      expect(separator, findsOneWidget);
+      expect(tester.getSize(separator), const Size(1, 16));
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   test('background tabs open in order after the front tab; closing picks a neighbour', () {
     final removed = <String>[];
     final a = _Tab('a');

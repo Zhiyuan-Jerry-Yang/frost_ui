@@ -1,0 +1,2 @@
+/checks.sh text eol=lf
+/checks_test.sh text eol=lf

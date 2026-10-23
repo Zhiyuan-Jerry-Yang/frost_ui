@@ -47,7 +47,12 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
-  for (final style in const [FrostSidebarStyle.capsule(), FrostSidebarStyle.flush()]) {
+  for (final style in const [
+    FrostSidebarStyle.inset(),
+    FrostSidebarStyle.capsule(),
+    FrostSidebarStyle.flush(),
+    FrostSidebarStyle.flush(itemForm: FrostNavItemForm.indicator),
+  ]) {
     testWidgets('FrostShell ${style.runtimeType}: navigation, reselection and More', (tester) async {
       await desktop(tester, const Size(1400, 900));
       final selected = <int>[];
@@ -94,9 +99,9 @@ void main() {
       expect(secondary, [0]);
 
       // The sidebar expands on wide windows.
-      await tester.tap(find.byTooltip('L.expandNavigation'));
+      await tester.tap(findFrostTooltip('L.expandNavigation'));
       await tester.pumpAndSettle();
-      expect(find.byTooltip('L.collapseNavigation'), findsOneWidget);
+      expect(findFrostTooltip('L.collapseNavigation'), findsOneWidget);
     });
   }
 
@@ -110,7 +115,7 @@ void main() {
       onBack: () {},
       showsMobileNavigation: true,
       sidebarStyle: const FrostSidebarStyle.flush(),
-      metrics: const FrostNavigationMetrics(railWidth: 56, expandedWidth: 192, headerHeight: 48, expandableMinWidth: 1200, mobileMaxWidth: 600),
+      metrics: const FrostNavigationMetrics(railWidth: 56, expandedWidth: 192, expandableMinWidth: 1200, mobileMaxWidth: 600),
       initiallyExpanded: initiallyExpanded,
       onExpandedChanged: onExpandedChanged,
       child: child ?? const SizedBox.expand(key: ValueKey('page')),
@@ -124,9 +129,9 @@ void main() {
     await tester.pumpAndSettle();
     // Too narrow to sit beside the page: collapsed, the page beside the rail.
     expect(tester.getTopLeft(find.byKey(const ValueKey('page'))).dx, 56);
-    expect(find.byTooltip('L.expandNavigation'), findsOneWidget);
+    expect(findFrostTooltip('L.expandNavigation'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('L.expandNavigation'));
+    await tester.tap(findFrostTooltip('L.expandNavigation'));
     await tester.pumpAndSettle();
     // Open over the page: the page stays put, and opening is not a choice.
     expect(tester.getTopLeft(find.byKey(const ValueKey('page'))).dx, 56);
@@ -136,13 +141,13 @@ void main() {
     // A click on the page closes it.
     await tester.tapAt(const Offset(600, 400));
     await tester.pumpAndSettle();
-    expect(find.byTooltip('L.expandNavigation'), findsOneWidget);
+    expect(findFrostTooltip('L.expandNavigation'), findsOneWidget);
 
     // Wide again, the saved choice returns and pushes the page.
     await desktop(tester, const Size(1400, 800));
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.byKey(const ValueKey('page'))).dx, 192);
-    await tester.tap(find.byTooltip('L.collapseNavigation'));
+    await tester.tap(findFrostTooltip('L.collapseNavigation'));
     await tester.pumpAndSettle();
     expect(changes, [false]);
     expect(tester.getTopLeft(find.byKey(const ValueKey('page'))).dx, 56);
@@ -158,12 +163,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('L.expandNavigation'));
+    await tester.tap(findFrostTooltip('L.expandNavigation'));
     await tester.pumpAndSettle();
-    expect(find.byTooltip('L.collapseNavigation'), findsOneWidget);
+    expect(findFrostTooltip('L.collapseNavigation'), findsOneWidget);
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
-    expect(find.byTooltip('L.expandNavigation'), findsOneWidget);
+    expect(findFrostTooltip('L.expandNavigation'), findsOneWidget);
   });
 
   testWidgets('Escape on a page goes back through the page and shell Scaffolds', (tester) async {
@@ -189,14 +194,13 @@ void main() {
     expect(backs, 1);
   });
 
-  testWidgets('pinned glass beside a flush sidebar covers only the content column', (tester) async {
+  testWidgets('pinned glass beside a flush sidebar covers the content sheet', (tester) async {
     await desktop(tester, const Size(1400, 800));
     await tester.pumpWidget(
       flushShell(
         onExpandedChanged: (_) {},
         child: FrostPinnedChrome(
           extent: 48,
-          columnMaxWidth: 600,
           chrome: const SizedBox.expand(),
           body: ListView(
             children: [
@@ -211,47 +215,9 @@ void main() {
     await tester.drag(find.text('3'), const Offset(0, -200));
     await tester.pumpAndSettle();
     final band = find.descendant(of: find.byType(FrostPinnedChromeGlass), matching: find.byType(FrostSurface));
-    expect(tester.getSize(band).width, 600);
+    expect(tester.getSize(band).width, 1400 - 56 - 8);
     // Centred in the page beside the 56 rail.
-    expect(tester.getCenter(band).dx, 56 + (1400 - 56) / 2);
-  });
-
-  testWidgets('a flush sidebar reports itself to the caption that continues it', (tester) async {
-    await desktop(tester, const Size(1400, 800));
-    final caption = FrostCaptionSidebarNotifier();
-    addTearDown(caption.dispose);
-    Widget host({required bool shell}) => FrostWindowCaptionScope(
-      showsTitle: true,
-      sidebar: caption,
-      child: shell ? flushShell(onExpandedChanged: (_) {}) : const SizedBox(),
-    );
-    await tester.pumpWidget(host(shell: true));
-    await tester.pumpAndSettle();
-    expect(caption.value?.width, 56);
-    expect(caption.value?.iconAxis, 28);
-    expect(caption.value?.style, const FrostSidebarStyle.flush());
-
-    // The caption follows the spring frame by frame, with the sidebar.
-    await tester.tap(find.byTooltip('L.expandNavigation'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 60));
-    final sidebar = tester.getSize(find.byType(FrostNavItem).first).width + 16;
-    expect(caption.value!.width, closeTo(sidebar, .01));
-    await tester.pumpAndSettle();
-    expect(caption.value?.width, 192);
-    expect(caption.value?.expansion, 1);
-
-    // Phone layout has no sidebar to continue.
-    await desktop(tester, const Size(500, 800));
-    await tester.pumpAndSettle();
-    expect(caption.value, isNull);
-
-    await desktop(tester, const Size(1400, 800));
-    await tester.pumpAndSettle();
-    expect(caption.value, isNotNull);
-    await tester.pumpWidget(host(shell: false));
-    await tester.pumpAndSettle();
-    expect(caption.value, isNull);
+    expect(tester.getCenter(band).dx, 56 + (1400 - 56 - 8) / 2);
   });
 
   testWidgets('FrostShell uses the bottom bar on phones', (tester) async {
@@ -261,13 +227,13 @@ void main() {
         FrostShell(
           destinations: const [_home, _search],
           selectedIndex: 1,
-          atDestinationRoot: false,
+          atDestinationRoot: true,
           onDestinationSelected: (_) {},
           canGoBack: true,
           onBack: () {},
           showsMobileNavigation: true,
           sidebarStyle: const FrostSidebarStyle.flush(),
-          child: const SizedBox.expand(),
+          child: const FrostShellDestination(child: SizedBox.expand()),
         ),
       ),
     );
@@ -322,7 +288,7 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.text('skeleton'), findsOneWidget);
+    expect(source.initialized, isTrue); // The shared sliver now starts its own first load.
     await source.refresh(true);
     await tester.pumpAndSettle();
     expect(find.text('item 1'), findsOneWidget);
@@ -368,14 +334,15 @@ void main() {
                     child: FrostLoadStateSwitcher(phase: phase, child: Text('phase $phase')),
                   ),
                   FrostButton(label: 'Act', onPressed: () {}),
-                  FrostSwitch(value: true, onChanged: (_) {}),
-                  FrostSelect<int>(
+                  FrostSwitch(value: true, onChanged: (_) {}, semanticLabel: null),
+                  FrostPicker<int>.menu(
                     value: 1,
-                    items: const [
-                      FrostSelectItem(value: 1, label: 'One'),
-                      FrostSelectItem(value: 2, label: 'Two'),
+                    options: const [
+                      FrostPickerOption(value: 1, label: 'One'),
+                      FrostPickerOption(value: 2, label: 'Two'),
                     ],
                     onChanged: (_) {},
+                    label: 'Choice',
                   ),
                   Expanded(
                     child: FrostSettingsSections(

@@ -4,7 +4,7 @@ import 'package:frost_ui/frost_ui.dart';
 
 void main() {
   testWidgets('a placement moves columns to one side and caps them', (tester) async {
-    late EdgeInsets end, start, centred;
+    late EdgeInsets end, start, defaultStart;
     await tester.pumpWidget(
       Column(
         children: [
@@ -30,16 +30,17 @@ void main() {
           ),
           Builder(
             builder: (context) {
-              centred = FrostColumnPlacement.columnPadding(context, 1000, maxWidth: FrostMetrics.readingMaxWidth);
+              defaultStart = FrostColumnPlacement.columnPadding(context, 1000, maxWidth: FrostMetrics.readingMaxWidth);
               return const SizedBox();
             },
           ),
         ],
       ),
     );
-    const inset = FrostMetrics.pageInset;
-    expect(end, const EdgeInsets.only(left: 900 - 560 + inset, right: inset));
-    expect(start, const EdgeInsets.only(left: inset, right: 1000 - 760 + inset));
-    expect(centred, FrostMetrics.columnPadding(1000, maxWidth: FrostMetrics.readingMaxWidth));
+    final inset = FrostMetrics.browseInset(900);
+    expect(end, EdgeInsets.only(left: 900 - 560 + inset, right: inset));
+    expect(start, EdgeInsets.only(left: inset, right: 1000 - 760 + inset));
+    expect(defaultStart, EdgeInsets.only(left: inset, right: 1000 - FrostMetrics.readingMaxWidth + inset));
+    expect(defaultStart, FrostMetrics.columnPadding(1000, maxWidth: FrostMetrics.readingMaxWidth));
   });
 }
