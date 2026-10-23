@@ -1,82 +1,149 @@
-import 'dart:math' as math;
-
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:frost_ui/src/foundation/metrics.dart';
-import 'package:frost_ui/src/layout/auto_scaffold.dart';
-import 'package:frost_ui/src/surface/ambient_backdrop.dart';
-import 'package:frost_ui/src/motion/spring.dart';
 
-/// Page transition shared by pushed routes.
-///
-/// Pushed pages live in the content area beside the sidebar, so the motion
-/// stays there too: with the sidebar a page fades in while growing from 0.98,
-/// on a phone it rises 24 px. A page a hero image flies into ([heroLed]) moves
-/// half as much, leaving the flight as the one motion to follow. On Android a
-/// back swipe drives the page directly (predictive back).
-///
-/// The incoming page carries its own copy of the ambient backdrop while it
-/// animates, so transparent pages never show the page underneath through them.
-Widget frostPageTransition(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation, Widget child, {bool heroLed = false}) {
+import '../foundation/metrics.dart';
+import '../foundation/scope.dart';
+import '../foundation/tokens.dart';
+import '../primitives/_page_outline.dart';
+import '../surface/ambient_backdrop.dart';
+import '_material_reveal.dart';
+
+/// Shared stationary media/desktop transition. Content, scrim and Hero derive
+/// from the same route animation; glass keeps its existing close sequence.
+Widget frostPageTransition(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation, Widget child) =>
+    frostOwnedPageTransition(context, animation, secondaryAnimation, child);
+
+Widget frostOwnedPageTransition(
+  BuildContext context,
+  Animation<double> animation,
+  Animation<double> secondaryAnimation,
+  Widget child, {
+  FrostRevealHandle? revealHandle,
+  PageRoute<Object?>? route,
+  bool media = true,
+}) {
   if (MediaQuery.disableAnimationsOf(context)) return child;
-  return _PageTransition(animation: animation, secondaryAnimation: secondaryAnimation, heroLed: heroLed, child: child);
+  final platform = Theme.of(context).platform;
+  if (!media && route != null && (platform == TargetPlatform.android || platform == TargetPlatform.iOS)) {
+    final predictive = FrostScope.configOf(context).predictiveBack;
+    final builder = platform == TargetPlatform.iOS
+        ? const CupertinoPageTransitionsBuilder()
+        : predictive
+        ? const PredictiveBackPageTransitionsBuilder()
+        : const FadeForwardsPageTransitionsBuilder();
+    final outline = FrostPageOutline.maybeOf(context);
+    final panel = outline != null && outline.radius != BorderRadius.zero;
+    // Keep the wrapper mounted across a compact/wide resize so page state,
+    // scroll positions and focus survive when the panel outline changes.
+    final page = ClipPath(
+      clipBehavior: panel ? Clip.antiAlias : Clip.none,
+      clipper: panel
+          ? FrostPageViewportClip(radius: outline.radius, continuous: FrostScope.configOf(context).continuousCorners, channel: outline.scrollbarChannel)
+          : null,
+      child: child,
+    );
+    final media = MediaQuery.of(context);
+    // A moving panel owns its outline, including the scrollbar channel and
+    // continuous corners. Android's predictive transition otherwise applies
+    // physical display corners to this inset viewport a second time. Scope the
+    // rectangular native clip to the transition; page content keeps real device
+    // metrics, and fullscreen routes keep Flutter's display-corner behavior.
+    final native = platform == TargetPlatform.android
+        ? MediaQuery(
+            data: panel ? media.applyDisplayCornerRadii(BorderRadius.zero) : media,
+            child: Builder(
+              builder: (context) => builder.buildTransitions(route, context, animation, secondaryAnimation, MediaQuery(data: media, child: page)),
+            ),
+          )
+        : builder.buildTransitions(route, context, animation, secondaryAnimation, page);
+    final guarded = AnimatedBuilder(
+      animation: animation,
+      child: native,
+      builder: (context, child) =>
+          FrostMaterialReveal(opacity: 1, contentOnly: true, deferNestedBlur: animation.value < 1, handle: revealHandle, child: child!),
+    );
+    return guarded;
+  }
+  return _BackGestureBridge(
+    child: _PageTransition(animation: animation, revealHandle: revealHandle, child: child),
+  );
 }
 
 class FrostPageTransitionsBuilder extends PageTransitionsBuilder {
   const FrostPageTransitionsBuilder({this.reducedMotion = false});
   final bool reducedMotion;
-
   @override
   Duration get transitionDuration => reducedMotion ? Duration.zero : FrostMotion.page;
-
   @override
   Duration get reverseTransitionDuration => reducedMotion ? Duration.zero : FrostMotion.exit;
-
   @override
   Widget buildTransitions<T>(PageRoute<T> route, BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation, Widget child) =>
-      reducedMotion ? child : frostPageTransition(context, animation, secondaryAnimation, child);
+      reducedMotion || route.isFirst ? child : frostOwnedPageTransition(context, animation, secondaryAnimation, child, route: route, media: false);
 }
 
-enum _BackPhase { idle, dragging, committing }
+const _previousDimAlpha = .2;
 
-class _PageTransition extends StatefulWidget {
-  const _PageTransition({required this.animation, required this.secondaryAnimation, required this.heroLed, required this.child});
-
+// Content and scrim use raw route progress so a held gesture, its commit and
+// its cancellation all paint the same opacity. Hero retains its geometric curve.
+class _PageTransition extends StatelessWidget {
+  const _PageTransition({required this.animation, required this.child, this.revealHandle});
   final Animation<double> animation;
-  final Animation<double> secondaryAnimation;
-  final bool heroLed;
+  final FrostRevealHandle? revealHandle;
   final Widget child;
 
   @override
-  State<_PageTransition> createState() => _PageTransitionState();
+  Widget build(BuildContext context) {
+    final route = ModalRoute.of(context);
+    return AnimatedBuilder(
+      animation: animation,
+      child: RepaintBoundary(child: child),
+      builder: (context, child) {
+        final moving = animation.status != AnimationStatus.completed;
+        final opacity = animation.value.clamp(0.0, 1.0);
+        return Stack(
+          fit: StackFit.passthrough,
+          children: [
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ColoredBox(color: FrostThemeTokens.of(context).onMediaScrim.withValues(alpha: moving ? _previousDimAlpha * opacity : 0)),
+              ),
+            ),
+            FrostMaterialReveal(
+              contentOnly: true,
+              handle: revealHandle,
+              opacity: opacity,
+              child: Stack(
+                fit: StackFit.passthrough,
+                children: [
+                  Positioned.fill(child: (moving && route?.opaque != false) ? const FrostAmbientBackdrop() : const SizedBox.shrink()),
+                  child!,
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }
 
-class _PageTransitionState extends State<_PageTransition> with WidgetsBindingObserver {
-  // A no-bounce spring's path over the page duration: it has settled by the
-  // end, so hero flights keep their timing. Exits stay a quicker ease-in.
-  static final _enterCurve = FrostSpringCurve(FrostMotion.snappy, FrostMotion.page);
+// Only a binding for routes whose visual transition is the stationary media
+// fade. Native ordinary transitions own their own binding. There are no release poses or substitute commit motions.
+class _BackGestureBridge extends StatefulWidget {
+  const _BackGestureBridge({required this.child});
+  final Widget child;
+  @override
+  State<_BackGestureBridge> createState() => _BackGestureBridgeState();
+}
 
-  late CurvedAnimation _incoming;
-  late CurvedAnimation _covered;
+class _BackGestureBridgeState extends State<_BackGestureBridge> with WidgetsBindingObserver {
   ModalRoute<Object?>? _route;
-
-  _BackPhase _phase = _BackPhase.idle;
-  PredictiveBackEvent? _startEvent;
-  PredictiveBackEvent? _lastEvent;
-
-  /// The page's pose when the swipe was committed; the exit continues from it.
-  _BackPose _committedFrom = _BackPose.rest;
-
+  VoidCallback? _finishGesture;
   @override
   void initState() {
     super.initState();
-    _curve();
     WidgetsBinding.instance.addObserver(this);
-  }
-
-  void _curve() {
-    _incoming = CurvedAnimation(parent: widget.animation, curve: _enterCurve, reverseCurve: Curves.easeInCubic);
-    _covered = CurvedAnimation(parent: widget.secondaryAnimation, curve: _enterCurve, reverseCurve: Curves.easeInCubic);
   }
 
   @override
@@ -86,152 +153,70 @@ class _PageTransitionState extends State<_PageTransition> with WidgetsBindingObs
   }
 
   @override
-  void didUpdateWidget(_PageTransition oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.animation != oldWidget.animation || widget.secondaryAnimation != oldWidget.secondaryAnimation) {
-      _incoming.dispose();
-      _covered.dispose();
-      _curve();
-    }
-  }
-
-  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _incoming.dispose();
-    _covered.dispose();
+    _finishGesture?.call();
     super.dispose();
   }
 
-  // Predictive back. Every pushed page listens, so only the page on top of
-  // the content navigator answers, and not while a dialog or sheet on the
-  // root navigator covers it: then Back closes that instead.
-  bool get _swipeable {
+  @override
+  bool handleStartBackGesture(PredictiveBackEvent event) {
     final route = _route;
-    if (route == null || !mounted || !route.isCurrent || !route.popGestureEnabled) {
+    if (Theme.of(context).platform != TargetPlatform.android ||
+        event.isButtonEvent ||
+        route == null ||
+        !mounted ||
+        !route.isCurrent ||
+        !route.popGestureEnabled) {
       return false;
     }
     final root = Navigator.of(context, rootNavigator: true);
-    return route.navigator == root || !root.canPop();
-  }
-
-  @override
-  bool handleStartBackGesture(PredictiveBackEvent backEvent) {
-    if (backEvent.isButtonEvent || !_swipeable) return false;
-    _route!.handleStartBackGesture(progress: 1 - backEvent.progress);
-    setState(() {
-      _phase = _BackPhase.dragging;
-      _startEvent = _lastEvent = backEvent;
-    });
+    if (route.navigator != root && root.canPop()) return false;
+    if (!FrostScope.configOf(context).predictiveBack) return false;
+    route.handleStartBackGesture(progress: 1 - event.progress);
     return true;
   }
 
   @override
-  void handleUpdateBackGestureProgress(PredictiveBackEvent backEvent) {
-    _route?.handleUpdateBackGestureProgress(progress: 1 - backEvent.progress);
-    setState(() => _lastEvent = backEvent);
+  void handleUpdateBackGestureProgress(PredictiveBackEvent event) {
+    _route?.handleUpdateBackGestureProgress(progress: 1 - event.progress);
   }
 
   @override
-  void handleCancelBackGesture() {
-    // The route animates back to fully shown; the pose follows it to rest.
-    _route?.handleCancelBackGesture();
-  }
-
+  void handleCancelBackGesture() => _route?.handleCancelBackGesture();
   @override
   void handleCommitBackGesture() {
-    _committedFrom = _dragPose(MediaQuery.sizeOf(context));
-    setState(() => _phase = _BackPhase.committing);
-    _route?.handleCommitBackGesture();
-  }
+    final route = _route;
+    final navigator = route?.navigator;
+    if (route == null || navigator == null) return;
+    // R16: TransitionRoute.handleCommitBackGesture reverses from 1 for the
+    // official Android visual preset. A media Hero must keep its current route
+    // progress instead. Ordinary Navigator.pop already reverses continuously.
+    // Keep the gesture alive until that reverse ends so HeroController.didPop
+    // continues the existing flight rather than creating a second one.
+    navigator.pop();
+    final animation = route.animation!;
+    if (!animation.isAnimating) {
+      if (navigator.mounted && navigator.userGestureInProgress) navigator.didStopUserGesture();
+      return;
+    }
+    var finished = false;
+    late AnimationStatusListener status;
+    void finish() {
+      if (finished) return;
+      finished = true;
+      animation.removeStatusListener(status);
+      _finishGesture = null;
+      if (navigator.mounted && navigator.userGestureInProgress) navigator.didStopUserGesture();
+    }
 
-  /// The page follows the finger: it shrinks toward 0.9, shifts away from
-  /// the edge the swipe started at and a little with vertical movement, and
-  /// rounds its corners, uncovering the page below (Android's predictive back
-  /// motion, within the content area).
-  _BackPose _dragPose(Size size) {
-    final progress = (1 - widget.animation.value).clamp(0.0, 1.0);
-    final shiftLimit = math.max(0.0, size.width / 20 - 8);
-    final direction = _lastEvent?.swipeEdge == SwipeEdge.right ? -1.0 : 1.0;
-    final verticalLimit = math.max(0.0, size.height / 20 - 8);
-    final verticalDrag = (_lastEvent?.touchOffset?.dy ?? 0) - (_startEvent?.touchOffset?.dy ?? 0);
-    final vertical = Curves.easeOut.transform((verticalDrag.abs() / size.height).clamp(0.0, 1.0)) * verticalDrag.sign * verticalLimit;
-    // The vertical shift eases back with the rest of the pose when the swipe is
-    // cancelled.
-    final lastProgress = _lastEvent?.progress ?? 0;
-    final verticalShare = lastProgress <= 0 ? 0.0 : (progress / lastProgress).clamp(0.0, 1.0);
-    return _BackPose(
-      scale: 1 - .1 * progress,
-      offset: Offset(direction * shiftLimit * progress, vertical * verticalShare),
-      radius: FrostMetrics.modalRadius * (progress * 4).clamp(0.0, 1.0),
-    );
+    status = (value) {
+      if (value == AnimationStatus.dismissed || value == AnimationStatus.completed) finish();
+    };
+    _finishGesture = finish;
+    animation.addStatusListener(status);
   }
 
   @override
-  Widget build(BuildContext context) {
-    final navigator = _route?.navigator;
-    return AnimatedBuilder(
-      animation: Listenable.merge([widget.animation, ?navigator?.userGestureInProgressNotifier]),
-      builder: (context, child) {
-        final swiping = (navigator?.userGestureInProgress ?? false) && _phase != _BackPhase.idle;
-        final (pose, opacity) = switch (_phase) {
-          _ when !swiping => _pushedPose(context),
-          _BackPhase.committing => _committedPose(),
-          _ => (_dragPose(MediaQuery.sizeOf(context)), 1.0),
-        };
-        final moving = widget.animation.status != AnimationStatus.completed;
-        // Fade and transform are layer properties: the page itself is painted
-        // once into its repaint boundary instead of on every frame. One tree
-        // shape for every state keeps the page's state when the backdrop copy
-        // is dropped or a swipe starts.
-        return Opacity(
-          opacity: opacity.clamp(0.0, 1.0),
-          child: Transform(
-            alignment: Alignment.center,
-            transform: Matrix4.diagonal3Values(pose.scale, pose.scale, 1)..setTranslationRaw(pose.offset.dx, pose.offset.dy, 0),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(pose.radius),
-              clipBehavior: pose.radius > 0 ? Clip.antiAlias : Clip.none,
-              child: Stack(
-                fit: StackFit.passthrough,
-                children: [
-                  Positioned.fill(child: moving ? const FrostAmbientBackdrop() : const SizedBox.shrink()),
-                  child!,
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-      child: RepaintBoundary(child: widget.child),
-    );
-  }
-
-  (_BackPose, double) _pushedPose(BuildContext context) {
-    final hidden = 1 - _incoming.value;
-    final amount = widget.heroLed ? .5 : 1.0;
-    final pose = FrostAutoScaffold.usesHorizontalLayoutOf(context)
-        ? _BackPose(scale: 1 - .02 * amount * hidden, offset: Offset.zero, radius: 0)
-        : _BackPose(scale: 1, offset: Offset(0, 24 * amount * hidden), radius: 0);
-    // Covered pages dim slightly.
-    return (pose, _incoming.value * (1 - _covered.value * .06));
-  }
-
-  /// After the swipe is committed the page keeps its pose, shrinks a little
-  /// further and fades out.
-  (_BackPose, double) _committedPose() {
-    final exit = Curves.easeOutCubic.transform((1 - widget.animation.value).clamp(0.0, 1.0));
-    final pose = _committedFrom;
-    return (_BackPose(scale: pose.scale * (1 - .04 * exit), offset: pose.offset, radius: pose.radius), 1 - exit);
-  }
-}
-
-class _BackPose {
-  const _BackPose({required this.scale, required this.offset, required this.radius});
-
-  static const rest = _BackPose(scale: 1, offset: Offset.zero, radius: 0);
-
-  final double scale;
-  final Offset offset;
-  final double radius;
+  Widget build(BuildContext context) => widget.child;
 }

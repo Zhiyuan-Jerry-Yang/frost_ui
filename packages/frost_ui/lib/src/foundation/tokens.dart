@@ -1,6 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '_glass_material.dart';
 import 'color_math.dart';
+
+const _defaultCategorical = <Color>[
+  Color(0xFF3B82F6),
+  Color(0xFF14B8A6),
+  Color(0xFF22C55E),
+  Color(0xFFF59E0B),
+  Color(0xFFF97316),
+  Color(0xFFEF4444),
+  Color(0xFF8B5CF6),
+  Color(0xFFEC4899),
+];
 
 /// Background tone of a palette. Each brightness has a neutral, cool and
 /// warm palette; follow-system mode always uses the neutral one.
@@ -25,10 +37,57 @@ class FrostThemeTokens extends ThemeExtension<FrostThemeTokens> {
     required this.line,
     required this.hoverSurface,
     required this.pressedSurface,
-    required this.separator,
     required this.threadLine,
     required this.shadow,
-  });
+    Color? textTertiary,
+    Color? textQuaternary,
+    Color? textSecondaryGlass,
+    Color? textTertiaryGlass,
+    Color? fillSubtle,
+    Color? fill,
+    Color? fillStrong,
+    Color? separator,
+    Color? positiveInk,
+    Color? positiveTint,
+    Color? cautionInk,
+    Color? cautionTint,
+    Color? negativeInk,
+    Color? negativeTint,
+    Color? infoInk,
+    Color? infoTint,
+    Color? onMediaScrim,
+    Color? onMediaInk,
+    Color? edgeHairline,
+    Color? edgeHighlight,
+    Color? mediaInnerStroke,
+    List<BoxShadow>? shadowAmbient,
+    List<BoxShadow>? shadowContact,
+    this.categorical = _defaultCategorical,
+  }) : _overrides = (
+         textTertiary: textTertiary,
+         textQuaternary: textQuaternary,
+         textSecondaryGlass: textSecondaryGlass,
+         textTertiaryGlass: textTertiaryGlass,
+         fillSubtle: fillSubtle,
+         fill: fill,
+         fillStrong: fillStrong,
+         separator: separator,
+         positiveInk: positiveInk,
+         positiveTint: positiveTint,
+         cautionInk: cautionInk,
+         cautionTint: cautionTint,
+         negativeInk: negativeInk,
+         negativeTint: negativeTint,
+         infoInk: infoInk,
+         infoTint: infoTint,
+         onMediaScrim: onMediaScrim,
+         onMediaInk: onMediaInk,
+         edgeHairline: edgeHairline,
+         edgeHighlight: edgeHighlight,
+         mediaInnerStroke: mediaInnerStroke,
+         shadowAmbient: shadowAmbient,
+         shadowContact: shadowContact,
+       );
 
   final Brightness brightness;
   final FrostTone tone;
@@ -41,6 +100,10 @@ class FrostThemeTokens extends ThemeExtension<FrostThemeTokens> {
   /// Its label: white where it reads, else a deep (or pale) tone of the
   /// accent's own hue rather than generic black or white, see [solidLabelTone].
   Color get onAction => solidLabelTone(accent);
+
+  /// Destructive solid actions use the semantic negative hue unchanged.
+  Color get negativeFill => _negative;
+  Color get onNegative => solidLabelTone(negativeFill);
 
   /// Glyphs drawn directly on the raw accent (checkbox check, switch thumb,
   /// colorScheme.onPrimary).
@@ -63,7 +126,99 @@ class FrostThemeTokens extends ThemeExtension<FrostThemeTokens> {
   final Color textPrimary, textSecondary, disabledText;
 
   /// [separator] divides items of a list; [threadLine] connects nested replies.
-  final Color line, hoverSurface, pressedSurface, separator, threadLine, shadow;
+  final Color line, hoverSurface, pressedSurface, threadLine, shadow;
+  final ({
+    Color? textTertiary,
+    Color? textQuaternary,
+    Color? textSecondaryGlass,
+    Color? textTertiaryGlass,
+    Color? fillSubtle,
+    Color? fill,
+    Color? fillStrong,
+    Color? separator,
+    Color? positiveInk,
+    Color? positiveTint,
+    Color? cautionInk,
+    Color? cautionTint,
+    Color? negativeInk,
+    Color? negativeTint,
+    Color? infoInk,
+    Color? infoTint,
+    Color? onMediaScrim,
+    Color? onMediaInk,
+    Color? edgeHairline,
+    Color? edgeHighlight,
+    Color? mediaInnerStroke,
+    List<BoxShadow>? shadowAmbient,
+    List<BoxShadow>? shadowContact,
+  })
+  _overrides;
+
+  static const _positive = Color(0xFF22A060);
+  static const _caution = Color(0xFFD98A00);
+  static const _negative = Color(0xFFE5484D);
+  static const _info = Color(0xFF3B82F6);
+
+  // Compare every opaque surface rather than assuming which palette role is
+  // darkest or lightest. Preserve the source hue when adjusting its tone.
+  Color _readableOnOpaqueSurfaces(Color colour, double minimum) {
+    final worst = [
+      surface,
+      surfaceRaised,
+      surfaceMuted,
+      surfaceInset,
+    ].reduce((first, second) => colorContrast(colour, first) <= colorContrast(colour, second) ? first : second);
+    return readableAccentTone(colour, worst, minimum);
+  }
+
+  Color get textTertiary => _overrides.textTertiary ?? _readableOnOpaqueSurfaces(Color.alphaBlend(textTertiaryGlass, surface), 3);
+  Color get textQuaternary => _overrides.textQuaternary ?? textPrimary.withValues(alpha: .25);
+  Color get textSecondaryGlass => _overrides.textSecondaryGlass ?? frostGlassInk(surfaceRaised, textPrimary, isDark, .62, 4.5);
+  Color get textTertiaryGlass => _overrides.textTertiaryGlass ?? frostGlassInk(surfaceRaised, textPrimary, isDark, .40, 3);
+  Color get fillSubtle => _overrides.fillSubtle ?? textPrimary.withValues(alpha: isDark ? .08 : .05);
+  Color get fill => _overrides.fill ?? textPrimary.withValues(alpha: isDark ? .12 : .08);
+  Color get fillStrong => _overrides.fillStrong ?? textPrimary.withValues(alpha: isDark ? .18 : .12);
+  Color get separator => _overrides.separator ?? textPrimary.withValues(alpha: isDark ? .16 : .12);
+  Color get positiveInk => _overrides.positiveInk ?? _readableOnOpaqueSurfaces(_positive, 4.5);
+  Color get positiveTint => _overrides.positiveTint ?? _positive.withValues(alpha: isDark ? .20 : .12);
+  Color get cautionInk => _overrides.cautionInk ?? _readableOnOpaqueSurfaces(_caution, 4.5);
+  Color get cautionTint => _overrides.cautionTint ?? _caution.withValues(alpha: isDark ? .20 : .12);
+  Color get negativeInk => _overrides.negativeInk ?? _readableOnOpaqueSurfaces(_negative, 4.5);
+  Color get negativeTint => _overrides.negativeTint ?? _negative.withValues(alpha: isDark ? .20 : .12);
+  Color get infoInk => _overrides.infoInk ?? _readableOnOpaqueSurfaces(_info, 4.5);
+  Color get infoTint => _overrides.infoTint ?? _info.withValues(alpha: isDark ? .20 : .12);
+  Color get onMediaScrim => _overrides.onMediaScrim ?? Colors.black.withValues(alpha: .52);
+  Color get onMediaInk => _overrides.onMediaInk ?? Colors.white;
+
+  /// Opaque white material shared by switch and slider thumbs in both themes.
+  /// Do not reuse onMediaInk: its app override must not recolour controls.
+  Color get controlThumbFill => Colors.white;
+  Color get edgeHairline => _overrides.edgeHairline ?? textPrimary.withValues(alpha: isDark ? .10 : .07);
+  Color get edgeHighlight => _overrides.edgeHighlight ?? Colors.white.withValues(alpha: isDark ? .06 : .45);
+  Color get mediaInnerStroke => _overrides.mediaInnerStroke ?? (isDark ? Colors.white : Colors.black).withValues(alpha: isDark ? .08 : .06);
+  List<BoxShadow> get shadowAmbient =>
+      _overrides.shadowAmbient ??
+      [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: isDark ? .28 : .06),
+          blurRadius: 28,
+          offset: const Offset(0, 8),
+        ),
+      ];
+  List<BoxShadow> get shadowContact =>
+      _overrides.shadowContact ??
+      [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: isDark ? .18 : .04),
+          blurRadius: 2,
+          offset: const Offset(0, 1),
+        ),
+      ];
+
+  /// App-configured categorical colours, copied from FrostPalettes.
+  final List<Color> categorical;
+  Color sequential(double t) => Color.lerp(fillSubtle, accent, t.clamp(0.0, 1.0))!;
+
   bool get isDark => brightness == Brightness.dark;
 
   /// Accent tone for text and links on the palette's surfaces (4.5:1).
@@ -103,9 +258,32 @@ class FrostThemeTokens extends ThemeExtension<FrostThemeTokens> {
     Color? line,
     Color? hoverSurface,
     Color? pressedSurface,
-    Color? separator,
     Color? threadLine,
     Color? shadow,
+    Color? textTertiary,
+    Color? textQuaternary,
+    Color? textSecondaryGlass,
+    Color? textTertiaryGlass,
+    Color? fillSubtle,
+    Color? fill,
+    Color? fillStrong,
+    Color? separator,
+    Color? positiveInk,
+    Color? positiveTint,
+    Color? cautionInk,
+    Color? cautionTint,
+    Color? negativeInk,
+    Color? negativeTint,
+    Color? infoInk,
+    Color? infoTint,
+    Color? onMediaScrim,
+    Color? onMediaInk,
+    Color? edgeHairline,
+    Color? edgeHighlight,
+    Color? mediaInnerStroke,
+    List<BoxShadow>? shadowAmbient,
+    List<BoxShadow>? shadowContact,
+    List<Color>? categorical,
   }) => FrostThemeTokens(
     brightness: brightness ?? this.brightness,
     tone: tone ?? this.tone,
@@ -122,9 +300,32 @@ class FrostThemeTokens extends ThemeExtension<FrostThemeTokens> {
     line: line ?? this.line,
     hoverSurface: hoverSurface ?? this.hoverSurface,
     pressedSurface: pressedSurface ?? this.pressedSurface,
-    separator: separator ?? this.separator,
     threadLine: threadLine ?? this.threadLine,
     shadow: shadow ?? this.shadow,
+    textTertiary: textTertiary ?? _overrides.textTertiary,
+    textQuaternary: textQuaternary ?? _overrides.textQuaternary,
+    textSecondaryGlass: textSecondaryGlass ?? _overrides.textSecondaryGlass,
+    textTertiaryGlass: textTertiaryGlass ?? _overrides.textTertiaryGlass,
+    fillSubtle: fillSubtle ?? _overrides.fillSubtle,
+    fill: fill ?? _overrides.fill,
+    fillStrong: fillStrong ?? _overrides.fillStrong,
+    separator: separator ?? _overrides.separator,
+    positiveInk: positiveInk ?? _overrides.positiveInk,
+    positiveTint: positiveTint ?? _overrides.positiveTint,
+    cautionInk: cautionInk ?? _overrides.cautionInk,
+    cautionTint: cautionTint ?? _overrides.cautionTint,
+    negativeInk: negativeInk ?? _overrides.negativeInk,
+    negativeTint: negativeTint ?? _overrides.negativeTint,
+    infoInk: infoInk ?? _overrides.infoInk,
+    infoTint: infoTint ?? _overrides.infoTint,
+    onMediaScrim: onMediaScrim ?? _overrides.onMediaScrim,
+    onMediaInk: onMediaInk ?? _overrides.onMediaInk,
+    edgeHairline: edgeHairline ?? _overrides.edgeHairline,
+    edgeHighlight: edgeHighlight ?? _overrides.edgeHighlight,
+    mediaInnerStroke: mediaInnerStroke ?? _overrides.mediaInnerStroke,
+    shadowAmbient: shadowAmbient ?? _overrides.shadowAmbient,
+    shadowContact: shadowContact ?? _overrides.shadowContact,
+    categorical: categorical ?? this.categorical,
   );
 
   @override
@@ -147,9 +348,34 @@ class FrostThemeTokens extends ThemeExtension<FrostThemeTokens> {
       line: mix(line, other.line),
       hoverSurface: mix(hoverSurface, other.hoverSurface),
       pressedSurface: mix(pressedSurface, other.pressedSurface),
-      separator: mix(separator, other.separator),
       threadLine: mix(threadLine, other.threadLine),
       shadow: mix(shadow, other.shadow),
+      textTertiary: mix(textTertiary, other.textTertiary),
+      textQuaternary: mix(textQuaternary, other.textQuaternary),
+      textSecondaryGlass: mix(textSecondaryGlass, other.textSecondaryGlass),
+      textTertiaryGlass: mix(textTertiaryGlass, other.textTertiaryGlass),
+      fillSubtle: mix(fillSubtle, other.fillSubtle),
+      fill: mix(fill, other.fill),
+      fillStrong: mix(fillStrong, other.fillStrong),
+      separator: mix(separator, other.separator),
+      positiveInk: mix(positiveInk, other.positiveInk),
+      positiveTint: mix(positiveTint, other.positiveTint),
+      cautionInk: mix(cautionInk, other.cautionInk),
+      cautionTint: mix(cautionTint, other.cautionTint),
+      negativeInk: mix(negativeInk, other.negativeInk),
+      negativeTint: mix(negativeTint, other.negativeTint),
+      infoInk: mix(infoInk, other.infoInk),
+      infoTint: mix(infoTint, other.infoTint),
+      onMediaScrim: mix(onMediaScrim, other.onMediaScrim),
+      onMediaInk: mix(onMediaInk, other.onMediaInk),
+      edgeHairline: mix(edgeHairline, other.edgeHairline),
+      edgeHighlight: mix(edgeHighlight, other.edgeHighlight),
+      mediaInnerStroke: mix(mediaInnerStroke, other.mediaInnerStroke),
+      shadowAmbient: BoxShadow.lerpList(shadowAmbient, other.shadowAmbient, t),
+      shadowContact: BoxShadow.lerpList(shadowContact, other.shadowContact, t),
+      categorical: categorical.length != other.categorical.length
+          ? (t < .5 ? categorical : other.categorical)
+          : List.generate(categorical.length, (i) => i < other.categorical.length ? mix(categorical[i], other.categorical[i]) : categorical[i]),
     );
   }
 }
@@ -162,6 +388,7 @@ class FrostPalettes {
     required this.lightDefaultAccent,
     required this.darkDefaultAccent,
     required this.accentPresets,
+    this.categorical = _defaultCategorical,
     required this.lightNeutral,
     required this.lightCool,
     required this.lightWarm,
@@ -177,6 +404,7 @@ class FrostPalettes {
   /// Preset accents offered by the appearance settings, usually the default
   /// accent first.
   final List<Color> accentPresets;
+  final List<Color> categorical;
   final FrostThemeTokens lightNeutral, lightCool, lightWarm, darkNeutral, darkCool, darkWarm;
 
   Color defaultAccent(Brightness brightness) => brightness == Brightness.light ? lightDefaultAccent : darkDefaultAccent;
@@ -191,16 +419,17 @@ class FrostPalettes {
       (Brightness.dark, FrostTone.cool) => darkCool,
       (Brightness.dark, FrostTone.warm) => darkWarm,
     };
-    return base.copyWith(accent: accent);
+    return base.copyWith(accent: accent, categorical: List.unmodifiable(categorical));
   }
 
-  FrostPalettes copyWith({Color? lightDefaultAccent, Color? darkDefaultAccent, List<Color>? accentPresets}) {
+  FrostPalettes copyWith({Color? lightDefaultAccent, Color? darkDefaultAccent, List<Color>? accentPresets, List<Color>? categorical}) {
     final light = lightDefaultAccent ?? this.lightDefaultAccent;
     final dark = darkDefaultAccent ?? this.darkDefaultAccent;
     return FrostPalettes(
       lightDefaultAccent: light,
       darkDefaultAccent: dark,
       accentPresets: accentPresets ?? this.accentPresets,
+      categorical: categorical ?? this.categorical,
       lightNeutral: lightNeutral.copyWith(accent: light),
       lightCool: lightCool.copyWith(accent: light),
       lightWarm: lightWarm.copyWith(accent: light),
@@ -233,7 +462,6 @@ class FrostPalettes {
       line: Color(0xFFD6D6D6),
       hoverSurface: Color(0xFFE7E7E7),
       pressedSurface: Color(0xFFDBDBDB),
-      separator: Color(0xFFD0D0D0),
       threadLine: Color(0xFFBABABA),
       shadow: Color(0x10000000),
     ),
@@ -253,7 +481,6 @@ class FrostPalettes {
       line: Color(0xFFD6DEE7),
       hoverSurface: Color(0xFFE9EEF4),
       pressedSurface: Color(0xFFDDE5EE),
-      separator: Color(0xFFCCD5DF),
       threadLine: Color(0xFFAEBBC9),
       shadow: Color(0x10000000),
     ),
@@ -273,7 +500,6 @@ class FrostPalettes {
       line: Color(0xFFD6D6CF),
       hoverSurface: Color(0xFFE8E8E3),
       pressedSurface: Color(0xFFDDDDD6),
-      separator: Color(0xFFD0D0C8),
       threadLine: Color(0xFFBCBCB3),
       shadow: Color(0x10000000),
     ),
@@ -293,7 +519,6 @@ class FrostPalettes {
       line: Color(0xFF4A4D51),
       hoverSurface: Color(0xFF3A3B3F),
       pressedSurface: Color(0xFF45464B),
-      separator: Color(0xFF565A60),
       threadLine: Color(0xFF747A82),
       shadow: Color(0x52000000),
     ),
@@ -313,7 +538,6 @@ class FrostPalettes {
       line: Color(0xFF465464),
       hoverSurface: Color(0xFF354351),
       pressedSurface: Color(0xFF414F5F),
-      separator: Color(0xFF536477),
       threadLine: Color(0xFF70859B),
       shadow: Color(0x52000000),
     ),
@@ -333,7 +557,6 @@ class FrostPalettes {
       line: Color(0xFF4F4F46),
       hoverSurface: Color(0xFF3D3D37),
       pressedSurface: Color(0xFF484840),
-      separator: Color(0xFF5C5C52),
       threadLine: Color(0xFF7B7B6D),
       shadow: Color(0x52000000),
     ),

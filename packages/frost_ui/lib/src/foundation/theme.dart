@@ -1,13 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:frost_ui/src/foundation/color_math.dart';
-import 'package:frost_ui/src/foundation/density.dart';
-import 'package:frost_ui/src/foundation/feedback.dart';
-import 'package:frost_ui/src/foundation/fonts.dart';
-import 'package:frost_ui/src/foundation/metrics.dart';
-import 'package:frost_ui/src/foundation/scope.dart';
-import 'package:frost_ui/src/foundation/tokens.dart';
-import 'package:frost_ui/src/motion/page_transition.dart';
+
+import '../motion/page_transition.dart';
+import '_control_geometry.dart';
+import '_menu_metrics.dart';
+import '_row_metrics.dart';
+import '_tab_metrics.dart';
+import 'density.dart';
+import 'feedback.dart';
+import 'fonts.dart';
+import 'metrics.dart';
+import 'radius.dart';
+import 'scope.dart';
+import 'sizes.dart';
+import 'spacing.dart';
+import 'tokens.dart';
+import 'typography.dart';
+
+// Keep idle/hover/drag thumbs inside the outside page margin.
+const _scrollbarThickness = 6.0;
 
 /// Builds the app's [ThemeData] from its [FrostConfig]. Material component
 /// themes are restyled into the Frost language, so the Material widgets Frost
@@ -31,7 +42,7 @@ abstract final class FrostTheme {
       brightness: brightness,
       fonts: config.fonts.resolve(platform: platform, locale: locale),
       platform: platform,
-      density: density,
+      density: density.forPlatform(platform),
       reducedMotion: reducedMotion,
     );
   }
@@ -48,32 +59,51 @@ abstract final class FrostTheme {
   }) {
     // Controls shrink with the density; their vertical padding gives up the
     // difference so labels stay centred at every size.
-    final shrink = (FrostDensity.comfortable.controlHeight - density.controlHeight) / 2;
+    final shrink = density.name == FrostDensity.compact.name ? FrostGap.inline : 0.0;
+    final groupGap = FrostGap.group - shrink;
+    final rowInset = FrostGap.rowInset - shrink;
     final colorScheme = _colorScheme(palettes: palettes, tokens: tokens, brightness: brightness);
-    final base = ThemeData(
+    final typography = FrostTypography(
       platform: platform,
-      colorScheme: colorScheme,
-      // Pages are transparent over the window's ambient backdrop.
-      scaffoldBackgroundColor: Colors.transparent,
-      pageTransitionsTheme: PageTransitionsTheme(
-        builders: {for (final platform in TargetPlatform.values) platform: FrostPageTransitionsBuilder(reducedMotion: reducedMotion)},
+      base: TextStyle(fontFamily: fonts.family, fontFamilyFallback: fonts.fallbacks),
+      monospace: config.fonts.monospace,
+    );
+    final controlRadius = FrostRadius.forHeight(density.controlHeight);
+    final menuSize = FrostMenuMetrics.sizeFor(density);
+    final menuGeometry = frostControlTextGeometry(baseHeight: density.heightFor(menuSize), style: typography.style(FrostTextRole.callout));
+    final menuRadius = FrostRadius.inner(FrostRadius.lg, FrostMenuMetrics.panelInset);
+    final rowGeometry = frostControlTextGeometry(baseHeight: density.heightFor(FrostControlSize.regular), style: typography.style(FrostTextRole.body));
+    final base = _applyTextTheme(
+      ThemeData(
+        platform: platform,
+        colorScheme: colorScheme,
+        // Pages are transparent over the window's ambient backdrop.
+        scaffoldBackgroundColor: Colors.transparent,
+        pageTransitionsTheme: PageTransitionsTheme(
+          builders: {for (final platform in TargetPlatform.values) platform: FrostPageTransitionsBuilder(reducedMotion: reducedMotion)},
+        ),
+        fontFamily: fonts.family,
+        fontFamilyFallback: fonts.fallbacks,
+        useMaterial3: true,
+        visualDensity: VisualDensity.standard,
+        materialTapTargetSize: MaterialTapTargetSize.padded,
+        extensions: [tokens, density, typography, FrostConfigTheme(config)],
+        iconTheme: IconThemeData(size: FrostControlSize.regular.iconSize, color: tokens.textSecondary),
       ),
-      fontFamily: fonts.family,
-      fontFamilyFallback: fonts.fallbacks,
-      useMaterial3: true,
-      visualDensity: VisualDensity.standard,
-      materialTapTargetSize: MaterialTapTargetSize.padded,
-      extensions: [tokens, density, FrostConfigTheme(config)],
+      typography,
     );
 
-    return _applyTextTheme(base).copyWith(
+    return base.copyWith(
       splashFactory: NoSplash.splashFactory,
       splashColor: Colors.transparent,
-      highlightColor: tokens.pressedSurface,
-      hoverColor: tokens.hoverSurface,
-      focusColor: tokens.hoverSurface,
-      dividerColor: tokens.line,
-      dividerTheme: DividerThemeData(color: tokens.line, thickness: 1, space: 1),
+      highlightColor: tokens.fillStrong,
+      hoverColor: tokens.fillSubtle,
+      focusColor: tokens.fillSubtle,
+      dividerColor: tokens.separator,
+      scrollbarTheme: const ScrollbarThemeData(thickness: WidgetStatePropertyAll(_scrollbarThickness), crossAxisMargin: 0),
+      // Material's zero-width border is a physical hairline at every DPR.
+      // Its compatibility layout slot stays one logical pixel until migration.
+      dividerTheme: DividerThemeData(color: tokens.separator, thickness: 0, space: 1),
       appBarTheme: AppBarThemeData(
         // Headers sit on the ambient backdrop like the title bar above them.
         backgroundColor: Colors.transparent,
@@ -84,52 +114,34 @@ abstract final class FrostTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        titleTextStyle: base.textTheme.titleLarge?.copyWith(color: colorScheme.onSurface, fontWeight: FontWeight.w600),
+        titleTextStyle: base.textTheme.titleLarge?.copyWith(color: colorScheme.onSurface),
       ),
       cardTheme: CardThemeData(
-        color: tokens.surfaceRaised,
+        color: tokens.fillSubtle,
         surfaceTintColor: Colors.transparent,
-        shadowColor: tokens.shadow,
+        shadowColor: Colors.transparent,
         elevation: 0,
         margin: EdgeInsets.zero,
         clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FrostMetrics.controlRadius)),
+        shape: _shape(config, controlRadius),
       ),
       tabBarTheme: TabBarThemeData(
-        overlayColor: WidgetStateProperty.resolveWith((states) => frostShowsFocus(states) ? tokens.hoverSurface : frostFeedbackSurface(tokens, states)),
-        labelColor: colorScheme.onSurface,
-        unselectedLabelColor: colorScheme.onSurfaceVariant,
+        overlayColor: WidgetStateProperty.resolveWith((states) => frostShowsFocus(states) ? tokens.fillSubtle : frostFeedbackSurface(tokens, states)),
+        labelColor: tokens.textPrimary,
+        unselectedLabelColor: tokens.textSecondary,
         indicatorColor: tokens.keyGraphicOn(tokens.surface),
         // A short rounded bar under the label, in the readable accent tone.
-        indicator: UnderlineTabIndicator(
-          borderSide: BorderSide(color: tokens.keyGraphicOn(tokens.surface), width: FrostMetrics.selectionIndicatorWidth),
-          borderRadius: BorderRadius.circular(FrostMetrics.selectionIndicatorWidth),
-          insets: const EdgeInsets.symmetric(horizontal: 6),
-        ),
+        indicator: FrostTabIndicator(color: tokens.keyGraphicOn(tokens.surface)),
         indicatorSize: TabBarIndicatorSize.label,
         // Hover and press read as a rounded pill, like the navigation items,
         // rather than a square block that runs into the bar's corners.
-        splashBorderRadius: BorderRadius.circular(FrostMetrics.controlRadius),
-        dividerColor: tokens.line,
-        labelStyle: base.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
-        unselectedLabelStyle: base.textTheme.labelLarge,
+        splashBorderRadius: FrostRadius.borderRadius(FrostRadius.sm),
+        dividerColor: tokens.separator,
+
+        labelPadding: const EdgeInsets.symmetric(horizontal: frostTabInset),
+        labelStyle: typography.style(FrostTextRole.callout),
+        unselectedLabelStyle: typography.style(FrostTextRole.callout),
         splashFactory: NoSplash.splashFactory,
-      ),
-      switchTheme: SwitchThemeData(
-        mouseCursor: frostClickCursor,
-        overlayColor: WidgetStateProperty.resolveWith((states) => frostButtonStateLayer(tokens, states, FrostFeedbackRole.quiet)),
-        thumbColor: WidgetStateProperty.resolveWith(
-          (states) => states.contains(WidgetState.disabled)
-              ? tokens.disabledText
-              : states.contains(WidgetState.selected)
-              ? _switchThumb(tokens)
-              : (tokens.isDark ? tokens.textSecondary : tokens.surfaceRaised),
-        ),
-        trackColor: WidgetStateProperty.resolveWith(
-          (states) =>
-              states.contains(WidgetState.selected) ? tokens.accent.withValues(alpha: states.contains(WidgetState.disabled) ? .38 : 1) : colorScheme.outline,
-        ),
-        trackOutlineColor: WidgetStateProperty.resolveWith((states) => frostShowsFocus(states) ? tokens.focus : Colors.transparent),
       ),
       checkboxTheme: CheckboxThemeData(
         mouseCursor: frostClickCursor,
@@ -144,7 +156,7 @@ abstract final class FrostTheme {
             ),
           ),
         ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FrostMetrics.badgeRadius)),
+        shape: _shape(config, FrostRadius.xs),
         fillColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.selected)
               ? tokens.keyGraphicOn(tokens.surface).withValues(alpha: states.contains(WidgetState.disabled) ? .38 : 1)
@@ -155,7 +167,7 @@ abstract final class FrostTheme {
       radioTheme: RadioThemeData(
         mouseCursor: frostClickCursor,
         overlayColor: WidgetStateProperty.resolveWith(
-          (states) => frostFeedbackSurface(tokens, states, resting: frostShowsFocus(states) ? tokens.hoverSurface : Colors.transparent),
+          (states) => frostFeedbackSurface(tokens, states, resting: frostShowsFocus(states) ? tokens.fillSubtle : Colors.transparent),
         ),
         fillColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.disabled)
@@ -170,31 +182,38 @@ abstract final class FrostTheme {
         activeTrackColor: tokens.keyGraphicOn(tokens.surface),
         thumbColor: tokens.keyGraphicOn(tokens.surface),
         inactiveTrackColor: tokens.line,
-        overlayColor: tokens.hoverSurface,
+        overlayColor: tokens.fillSubtle,
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(color: tokens.keyGraphicOn(tokens.surface), linearTrackColor: tokens.line),
       tooltipTheme: TooltipThemeData(
-        decoration: BoxDecoration(color: colorScheme.inverseSurface, borderRadius: BorderRadius.circular(FrostMetrics.controlRadius)),
-        textStyle: base.textTheme.bodySmall?.copyWith(color: colorScheme.onInverseSurface),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: ShapeDecoration(
+          color: tokens.surfaceRaised,
+          shape: _shape(config, FrostRadius.sm),
+          shadows: [...tokens.shadowAmbient, ...tokens.shadowContact],
+        ),
+        textStyle: base.textTheme.bodySmall?.copyWith(color: tokens.textPrimary),
+        padding: EdgeInsets.symmetric(horizontal: groupGap, vertical: FrostGap.related),
         waitDuration: const Duration(milliseconds: 500),
       ),
       menuButtonTheme: MenuButtonThemeData(
-        // The menu surface owns the outer corners; contiguous rows fill it.
-        style: frostFeedbackStyle(tokens).copyWith(shape: const WidgetStatePropertyAll(RoundedRectangleBorder())),
+        style: frostFeedbackStyle(tokens).copyWith(
+          minimumSize: WidgetStatePropertyAll(Size(0, menuGeometry.height)),
+          padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: FrostMenuMetrics.rowInset, vertical: menuGeometry.verticalInset)),
+          visualDensity: VisualDensity.standard,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          textStyle: WidgetStatePropertyAll(typography.style(FrostTextRole.callout)),
+          shape: WidgetStatePropertyAll(_shape(config, menuRadius)),
+        ),
       ),
       menuTheme: MenuThemeData(
         style: MenuStyle(
-          padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+          minimumSize: const WidgetStatePropertyAll(Size(FrostMenuMetrics.minimumWidth, 0)),
+          maximumSize: const WidgetStatePropertyAll(Size(FrostMenuMetrics.maximumWidth, double.infinity)),
+          padding: const WidgetStatePropertyAll(EdgeInsets.all(FrostMenuMetrics.panelInset)),
           backgroundColor: WidgetStatePropertyAll(tokens.surfaceRaised),
           surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-          elevation: const WidgetStatePropertyAll(4),
-          shape: WidgetStatePropertyAll(
-            RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(FrostMetrics.groupRadius),
-              side: BorderSide(color: tokens.line),
-            ),
-          ),
+          elevation: const WidgetStatePropertyAll(0),
+          shape: WidgetStatePropertyAll(_shape(config, FrostRadius.lg, side: BorderSide(color: tokens.edgeHairline))),
         ),
       ),
       iconButtonTheme: IconButtonThemeData(
@@ -202,12 +221,12 @@ abstract final class FrostTheme {
             IconButton.styleFrom(
               overlayColor: Colors.transparent,
               minimumSize: Size.square(density.controlHeight),
-              iconSize: FrostMetrics.iconSize,
+              iconSize: FrostControlSize.regular.iconSize,
               foregroundColor: colorScheme.onSurfaceVariant,
-              disabledForegroundColor: colorScheme.onSurfaceVariant.withValues(alpha: 0.38),
+              disabledForegroundColor: tokens.textQuaternary,
               highlightColor: Colors.transparent,
               hoverColor: Colors.transparent,
-              shape: const CircleBorder(),
+              shape: _shape(config, FrostRadius.forHeight(density.controlHeight)),
             ).copyWith(
               mouseCursor: frostClickCursor,
               backgroundBuilder: frostButtonFeedbackBackground,
@@ -222,9 +241,9 @@ abstract final class FrostTheme {
             TextButton.styleFrom(
               overlayColor: Colors.transparent,
               foregroundColor: colorScheme.onSurface,
-              disabledForegroundColor: colorScheme.onSurfaceVariant.withValues(alpha: 0.38),
-              textStyle: base.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FrostMetrics.controlRadius)),
+              disabledForegroundColor: tokens.textQuaternary,
+              textStyle: base.textTheme.labelLarge,
+              shape: _shape(config, controlRadius),
             ).copyWith(
               mouseCursor: frostClickCursor,
               backgroundBuilder: frostButtonFeedbackBackground,
@@ -240,16 +259,16 @@ abstract final class FrostTheme {
               backgroundColor: tokens.actionFill,
               overlayColor: Colors.transparent,
               foregroundColor: tokens.onAction,
-              disabledBackgroundColor: tokens.surfaceInset,
+              disabledBackgroundColor: tokens.fill,
               disabledForegroundColor: tokens.disabledText,
               elevation: 0,
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12 - shrink),
-              textStyle: base.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FrostMetrics.controlRadius)),
+              padding: EdgeInsets.symmetric(horizontal: rowInset, vertical: groupGap),
+              textStyle: base.textTheme.labelLarge,
+              shape: _shape(config, controlRadius),
             ).copyWith(
               mouseCursor: frostClickCursor,
               backgroundBuilder: frostPrimaryButtonFeedbackBackground,
-              backgroundColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.disabled) ? tokens.surfaceInset : tokens.actionFill),
+              backgroundColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.disabled) ? tokens.fill : tokens.actionFill),
               splashFactory: NoSplash.splashFactory,
               overlayColor: const WidgetStatePropertyAll(Colors.transparent),
               side: frostFeedbackStyle(tokens).side,
@@ -261,17 +280,17 @@ abstract final class FrostTheme {
               overlayColor: Colors.transparent,
               backgroundColor: tokens.surfaceRaised,
               foregroundColor: colorScheme.onSurface,
-              disabledBackgroundColor: tokens.surfaceMuted,
-              disabledForegroundColor: colorScheme.onSurfaceVariant.withValues(alpha: 0.42),
+              disabledBackgroundColor: tokens.fillSubtle,
+              disabledForegroundColor: tokens.textQuaternary,
               elevation: 0,
               shadowColor: Colors.transparent,
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12 - shrink),
-              textStyle: base.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FrostMetrics.controlRadius)),
+              padding: EdgeInsets.symmetric(horizontal: rowInset, vertical: groupGap),
+              textStyle: base.textTheme.labelLarge,
+              shape: _shape(config, controlRadius),
             ).copyWith(
               mouseCursor: frostClickCursor,
               backgroundBuilder: frostSecondaryButtonFeedbackBackground,
-              backgroundColor: WidgetStatePropertyAll(tokens.surfaceInset),
+              backgroundColor: WidgetStatePropertyAll(tokens.fill),
               splashFactory: NoSplash.splashFactory,
               overlayColor: const WidgetStatePropertyAll(Colors.transparent),
               side: frostFeedbackStyle(tokens).side,
@@ -282,101 +301,109 @@ abstract final class FrostTheme {
             OutlinedButton.styleFrom(
               overlayColor: Colors.transparent,
               foregroundColor: colorScheme.onSurface,
-              disabledForegroundColor: colorScheme.onSurfaceVariant.withValues(alpha: 0.38),
-              padding: EdgeInsets.symmetric(horizontal: 15, vertical: 11 - shrink),
-              textStyle: base.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FrostMetrics.controlRadius)),
+              disabledForegroundColor: tokens.textQuaternary,
+              padding: EdgeInsets.symmetric(horizontal: rowInset, vertical: groupGap),
+              textStyle: base.textTheme.labelLarge,
+              shape: _shape(config, controlRadius),
             ).copyWith(
               mouseCursor: frostClickCursor,
               backgroundBuilder: frostSecondaryButtonFeedbackBackground,
-              backgroundColor: WidgetStatePropertyAll(tokens.surfaceInset),
+              backgroundColor: WidgetStatePropertyAll(tokens.fill),
               splashFactory: NoSplash.splashFactory,
               overlayColor: const WidgetStatePropertyAll(Colors.transparent),
               side: frostFeedbackStyle(tokens).side,
             ),
       ),
-      segmentedButtonTheme: SegmentedButtonThemeData(style: _segmentedButtonStyle(tokens, colorScheme, base.textTheme.labelLarge, density)),
+      segmentedButtonTheme: SegmentedButtonThemeData(style: _segmentedButtonStyle(config, tokens, colorScheme, base.textTheme.labelLarge, density)),
       chipTheme: ChipThemeData(
         // Selected chips use the accent wash, a check and accent ink; resting
         // chips stay neutral and never carry a coloured outline.
         color: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.selected)
               ? Color.alphaBlend(frostButtonStateLayer(tokens, states, FrostFeedbackRole.quiet), tokens.selectionSurface)
-              : frostFeedbackSurface(tokens, states, resting: states.contains(WidgetState.disabled) ? tokens.surfaceMuted : tokens.surfaceInset),
+              : frostFeedbackSurface(tokens, states, resting: states.contains(WidgetState.disabled) ? tokens.fillSubtle : tokens.fill),
         ),
-        backgroundColor: tokens.surfaceInset,
+        backgroundColor: tokens.fill,
         selectedColor: tokens.selectionSurface,
-        disabledColor: tokens.surfaceMuted,
+        disabledColor: tokens.fillSubtle,
         checkmarkColor: tokens.selectionInk,
-        labelStyle: base.textTheme.labelLarge?.copyWith(color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500),
-        secondaryLabelStyle: base.textTheme.labelLarge?.copyWith(color: tokens.selectionInk, fontWeight: FontWeight.w600),
+        labelStyle: base.textTheme.labelLarge?.copyWith(color: colorScheme.onSurfaceVariant),
+        secondaryLabelStyle: base.textTheme.labelLarge?.copyWith(color: tokens.selectionInk),
         side: WidgetStateBorderSide.resolveWith((states) => frostFeedbackBorder(tokens, states)),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FrostMetrics.controlRadius)),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        shape: _shape(config, controlRadius),
+        padding: const EdgeInsets.symmetric(horizontal: FrostGap.related, vertical: FrostGap.inline),
         showCheckmark: true,
       ),
       inputDecorationTheme: InputDecorationThemeData(
         filled: true,
-        fillColor: tokens.surfaceInset,
-        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12 - shrink),
-        border: _inputBorder(tokens.line),
-        enabledBorder: _inputBorder(tokens.line),
-        focusedBorder: _inputBorder(tokens.fieldFocus, width: FrostMetrics.fieldFocusWidth),
-        errorBorder: _inputBorder(colorScheme.error),
-        focusedErrorBorder: _inputBorder(colorScheme.error, width: FrostMetrics.fieldFocusWidth),
-        hintStyle: base.textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant.withValues(alpha: 0.72)),
+        fillColor: tokens.fill,
+        contentPadding: EdgeInsets.symmetric(horizontal: groupGap, vertical: groupGap),
+        border: _inputBorder(Colors.transparent, controlRadius, width: 0),
+        enabledBorder: _inputBorder(Colors.transparent, controlRadius, width: 0),
+        focusedBorder: _inputBorder(tokens.fieldFocus, controlRadius, width: FrostMetrics.fieldFocusWidth),
+        errorBorder: _inputBorder(tokens.negativeInk, controlRadius, width: FrostMetrics.fieldFocusWidth),
+        focusedErrorBorder: _inputBorder(tokens.negativeInk, controlRadius, width: FrostMetrics.fieldFocusWidth),
+        hintStyle: WidgetStateTextStyle.resolveWith(
+          (states) => base.textTheme.bodyMedium!.copyWith(color: states.contains(WidgetState.disabled) ? tokens.textQuaternary : tokens.textTertiary),
+        ),
       ),
       popupMenuTheme: PopupMenuThemeData(
         menuPadding: EdgeInsets.zero,
         color: tokens.surfaceRaised,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FrostMetrics.controlRadius)),
+        shape: _shape(config, controlRadius),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: tokens.surfaceRaised,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FrostMetrics.modalRadius)),
+        shape: _shape(config, FrostRadius.xxl),
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: tokens.surfaceRaised,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         modalElevation: 0,
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(FrostMetrics.modalRadius))),
+        shape: _shape(config, FrostRadius.xxl, corners: const BorderRadius.vertical(top: Radius.circular(FrostRadius.xxl))),
       ),
       listTileTheme: ListTileThemeData(
         mouseCursor: frostClickCursor,
-        iconColor: colorScheme.onSurfaceVariant,
-        textColor: colorScheme.onSurface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FrostMetrics.controlRadius)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        iconColor: tokens.textSecondary,
+        textColor: tokens.textPrimary,
+        titleTextStyle: typography.style(FrostTextRole.body).copyWith(color: tokens.textPrimary),
+        subtitleTextStyle: typography.style(FrostTextRole.footnote).copyWith(color: tokens.textSecondary),
+        leadingAndTrailingTextStyle: typography.style(FrostTextRole.body).copyWith(color: tokens.textSecondary),
+        shape: _shape(config, FrostRadius.sm),
+        minTileHeight: density.heightFor(FrostControlSize.regular),
+        minVerticalPadding: rowGeometry.verticalInset,
+        minLeadingWidth: frostRowIconColumn,
+        horizontalTitleGap: FrostGap.related,
+        visualDensity: VisualDensity.standard,
+        contentPadding: EdgeInsets.symmetric(horizontal: rowInset),
       ),
     );
   }
 
-  static ThemeData _applyTextTheme(ThemeData theme) {
-    return theme.copyWith(
-      textTheme: theme.textTheme.copyWith(
-        displayLarge: theme.textTheme.displayLarge?.copyWith(fontWeight: FontWeight.w600),
-        displayMedium: theme.textTheme.displayMedium?.copyWith(fontWeight: FontWeight.w600),
-        displaySmall: theme.textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w600),
-        headlineLarge: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.w600),
-        headlineMedium: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w600),
-        headlineSmall: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
-        titleLarge: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-        titleMedium: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-        titleSmall: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-        bodyLarge: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w400),
-        bodyMedium: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w400),
-        bodySmall: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w400),
-        labelLarge: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
-        labelMedium: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
-        labelSmall: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
-      ),
-    );
-  }
+  static ThemeData _applyTextTheme(ThemeData theme, FrostTypography typography) => theme.copyWith(
+    textTheme: TextTheme(
+      displayLarge: typography.style(FrostTextRole.hero),
+      displayMedium: typography.style(FrostTextRole.hero),
+      displaySmall: typography.style(FrostTextRole.value),
+      headlineLarge: typography.style(FrostTextRole.value),
+      headlineMedium: typography.style(FrostTextRole.title1),
+      headlineSmall: typography.style(FrostTextRole.title1),
+      titleLarge: typography.style(FrostTextRole.title2),
+      titleMedium: typography.style(FrostTextRole.headline),
+      titleSmall: typography.style(FrostTextRole.headline),
+      bodyLarge: typography.style(FrostTextRole.body),
+      bodyMedium: typography.style(FrostTextRole.body),
+      bodySmall: typography.style(FrostTextRole.subheadline),
+      labelLarge: typography.style(FrostTextRole.callout),
+      labelMedium: typography.style(FrostTextRole.footnote),
+      labelSmall: typography.style(FrostTextRole.caption),
+    ).apply(bodyColor: theme.colorScheme.onSurface, displayColor: theme.colorScheme.onSurface),
+  );
 
   static ColorScheme _colorScheme({required FrostPalettes palettes, required FrostThemeTokens tokens, required Brightness brightness}) {
     final base = ColorScheme.fromSeed(seedColor: tokens.accent, brightness: brightness);
@@ -393,10 +420,10 @@ abstract final class FrostTheme {
       onTertiary: tokens.onAccent,
       tertiaryContainer: tokens.selectionSurface,
       onTertiaryContainer: tokens.selectionInk,
-      error: tokens.textPrimary,
+      error: tokens.negativeInk,
       onError: tokens.surface,
-      errorContainer: tokens.surfaceMuted,
-      onErrorContainer: tokens.textPrimary,
+      errorContainer: tokens.negativeTint,
+      onErrorContainer: tokens.negativeInk,
       surface: tokens.surface,
       surfaceTint: tokens.surfaceTint,
       onSurface: tokens.textPrimary,
@@ -411,23 +438,23 @@ abstract final class FrostTheme {
       outline: tokens.line,
       outlineVariant: tokens.line,
       shadow: tokens.shadow,
-      scrim: Colors.black.withValues(alpha: tokens.isDark ? .48 : .24),
+      scrim: tokens.onMediaScrim,
     );
   }
 
-  static Color _switchThumb(FrostThemeTokens tokens) {
-    final lightThumb = tokens.isDark ? tokens.textPrimary : tokens.surfaceRaised;
-    // Keep the familiar light thumb on the default pink track. On an almost
-    // white custom track, a dark thumb is needed to retain a visible handle.
-    return colorContrast(tokens.accent, lightThumb) >= 2.3 ? lightThumb : tokens.onAccent;
-  }
+  static OutlinedBorder _shape(FrostConfig config, double radius, {BorderRadiusGeometry? corners, BorderSide side = BorderSide.none}) =>
+      config.continuousCorners
+      ? RoundedSuperellipseBorder(borderRadius: corners ?? FrostRadius.borderRadius(radius), side: side)
+      : RoundedRectangleBorder(borderRadius: corners ?? FrostRadius.borderRadius(radius), side: side);
 
-  static ButtonStyle _segmentedButtonStyle(FrostThemeTokens tokens, ColorScheme colorScheme, TextStyle? labelStyle, FrostDensity density) {
+  static ButtonStyle _segmentedButtonStyle(FrostConfig config, FrostThemeTokens tokens, ColorScheme colorScheme, TextStyle? labelStyle, FrostDensity density) {
+    final groupGap = FrostGap.group - (density.name == FrostDensity.compact.name ? FrostGap.inline : 0.0);
+    final controlRadius = FrostRadius.forHeight(density.controlHeight);
     return ButtonStyle(
       minimumSize: WidgetStatePropertyAll(Size(0, density.controlHeight)),
-      textStyle: WidgetStatePropertyAll(labelStyle?.copyWith(fontWeight: FontWeight.w600)),
-      padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 12, vertical: 9)),
-      shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(FrostMetrics.controlRadius))),
+      textStyle: WidgetStatePropertyAll(labelStyle),
+      padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: groupGap, vertical: FrostGap.related)),
+      shape: WidgetStatePropertyAll(_shape(config, controlRadius)),
       side: WidgetStateProperty.resolveWith((states) {
         return frostFeedbackBorder(tokens, states);
       }),
@@ -435,14 +462,14 @@ abstract final class FrostTheme {
       backgroundBuilder: frostButtonFeedbackBackground,
       backgroundColor: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) {
-          return tokens.isDark ? tokens.surfaceMuted : tokens.surfaceRaised;
+          return tokens.isDark ? tokens.fillSubtle : tokens.surfaceRaised;
         }
 
-        return tokens.isDark ? tokens.surfaceRaised : tokens.surfaceInset;
+        return tokens.isDark ? tokens.surfaceRaised : tokens.fill;
       }),
       foregroundColor: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.disabled)) {
-          return colorScheme.onSurfaceVariant.withValues(alpha: 0.38);
+          return tokens.textQuaternary;
         }
         if (states.contains(WidgetState.selected)) {
           return tokens.selectionInk;
@@ -459,9 +486,9 @@ abstract final class FrostTheme {
     );
   }
 
-  static OutlineInputBorder _inputBorder(Color color, {double width = 1}) {
+  static OutlineInputBorder _inputBorder(Color color, double controlRadius, {double width = 1}) {
     return OutlineInputBorder(
-      borderRadius: BorderRadius.circular(FrostMetrics.controlRadius),
+      borderRadius: FrostRadius.borderRadius(controlRadius),
       borderSide: BorderSide(color: color, width: width),
     );
   }

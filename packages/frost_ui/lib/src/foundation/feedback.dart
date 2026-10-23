@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:frost_ui/src/foundation/color_math.dart';
-import 'package:frost_ui/src/foundation/tokens.dart';
-import 'package:frost_ui/src/foundation/metrics.dart';
+
+import '_focus_modality.dart';
+import 'color_math.dart';
+import 'metrics.dart';
+import 'tokens.dart';
 
 enum FrostFeedbackRole { primary, secondary, quiet }
 
 /// Mouse feedback and keyboard focus are independent of the page layout.
-bool frostShowsFocus(Set<WidgetState> states) => states.contains(WidgetState.focused) && FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
+bool frostShowsFocus(Set<WidgetState> states) =>
+    states.contains(WidgetState.focused) && FrostInputModality.instance.keyboard && FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
 
 final frostClickCursor = WidgetStateProperty.resolveWith<MouseCursor>(
   (states) => states.contains(WidgetState.disabled) ? SystemMouseCursors.basic : SystemMouseCursors.click,
@@ -15,10 +18,10 @@ final frostClickCursor = WidgetStateProperty.resolveWith<MouseCursor>(
 Color frostFeedbackSurface(FrostThemeTokens tokens, Set<WidgetState> states, {Color resting = Colors.transparent}) {
   // Transparent black interpolates through dark RGB values before compositing.
   // Preserve the surface's RGB at zero alpha so entry/exit only changes opacity.
-  final idle = resting.a == 0 ? tokens.hoverSurface.withValues(alpha: 0) : resting;
+  final idle = resting.a == 0 ? tokens.fillSubtle.withValues(alpha: 0) : resting;
   if (states.contains(WidgetState.disabled)) return idle;
-  if (states.contains(WidgetState.pressed)) return tokens.pressedSurface;
-  if (states.contains(WidgetState.hovered)) return tokens.hoverSurface;
+  if (states.contains(WidgetState.pressed)) return tokens.fillStrong;
+  if (states.contains(WidgetState.hovered)) return tokens.fillSubtle;
   return idle;
 }
 
@@ -39,22 +42,20 @@ Color frostButtonStateLayer(FrostThemeTokens tokens, Set<WidgetState> states, Fr
           : solidOverlayAlpha(
               tokens.actionFill,
               pressed
-                  ? .04
-                  : hovered
                   ? .08
+                  : hovered
+                  ? .04
                   : 0,
             ),
     ),
-    FrostFeedbackRole.secondary => (pressed ? tokens.pressedSurface : tokens.hoverSurface).withValues(alpha: disabled || (!pressed && !hovered) ? 0 : 1),
-    FrostFeedbackRole.quiet => (tokens.isDark ? Colors.white : Colors.black).withValues(
-      alpha: disabled
-          ? 0
+    FrostFeedbackRole.secondary || FrostFeedbackRole.quiet =>
+      disabled
+          ? tokens.fillSubtle.withValues(alpha: 0)
           : pressed
-          ? (tokens.isDark ? .10 : .07)
+          ? tokens.fillStrong
           : hovered
-          ? (tokens.isDark ? .06 : .04)
-          : 0,
-    ),
+          ? tokens.fillSubtle
+          : tokens.fillSubtle.withValues(alpha: 0),
   };
 }
 

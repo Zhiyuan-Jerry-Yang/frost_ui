@@ -1,41 +1,15 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/physics.dart';
-import 'package:frost_ui/src/foundation/density.dart';
+
+import '../motion/_spring_simulation.dart';
+import 'spacing.dart';
 
 /// Shared geometry for controls and content; not platform or layout detection.
 ///
 /// These are the design language itself and are identical in every app.
 abstract final class FrostMetrics {
-  /// Shared field/selector height, independent of the page aspect ratio:
-  /// pointer platforms follow the density setting, touch keeps full size.
-  static double fieldHeight(BuildContext context) {
-    final base = switch (Theme.of(context).platform) {
-      TargetPlatform.windows || TargetPlatform.macOS || TargetPlatform.linux => FrostDensity.of(context).pointerFieldHeight,
-      _ => controlHeight,
-    };
-    final scaledText = MediaQuery.textScalerOf(context).scale(Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14) * 1.5 + compactSectionGap;
-    return scaledText > base ? scaledText : base;
-  }
-
-  static const controlRadius = 12.0;
-  static const imageRadius = 12.0;
-  static const groupRadius = 16.0;
-  static const badgeRadius = 6.0;
-  static const modalRadius = 24.0;
-  static const controlHeight = 48.0;
-  static const compactTargetHeight = 44.0;
-  static const compactGap = 8.0;
-  static const compactSectionGap = 12.0;
-  static const sectionHeadingGap = 6.0;
-  static const contentSectionPadding = EdgeInsets.all(12);
   static const filterMaxWidth = 360.0;
-  static const iconSize = 20.0;
-  static const pageInset = 16.0;
-  static const sectionGap = 24.0;
-  static const itemGap = 12.0;
-  static const gridGap = 8.0;
 
   /// Preferred tile width shared by every media grid and its skeleton; the
   /// column count lands the tiles as close to it as fits.
@@ -53,8 +27,7 @@ abstract final class FrostMetrics {
   static const readingMaxWidth = 760.0;
 
   /// Inset that centres a [readingMaxWidth] column in a viewport of [width].
-  static double readingColumnInset(double width) => math.max(pageInset, (width - readingMaxWidth) / 2 + pageInset);
-  static const panelPadding = EdgeInsets.all(16);
+  static double readingColumnInset(double width) => math.max(browseInset(width), (width - readingMaxWidth) / 2 + browseInset(width));
 
   /// Horizontal padding around each tab label. Desktop tabs are a little
   /// wider apart, which also lets the first tab's hover highlight start at
@@ -66,10 +39,10 @@ abstract final class FrostMetrics {
   /// and grids, so every block starts on the same left edge.
   static double browseInset(double width) => width < 600 ? 12.0 : 20.0;
 
-  static EdgeInsets sectionTitlePadding(double width) => EdgeInsets.fromLTRB(browseInset(width), compactGap, browseInset(width), compactGap);
+  static EdgeInsets sectionTitlePadding(double width) => EdgeInsets.fromLTRB(browseInset(width), FrostGap.related, browseInset(width), FrostGap.related);
   static const focusBorderWidth = 2.0;
 
-  /// Outline width of a text field while it has focus.
+  /// Validation stroke inside a field; keyboard focus uses focusBorderWidth.
   static const fieldFocusWidth = 1.5;
   static const selectionIndicatorWidth = 3.0;
 
@@ -82,15 +55,15 @@ abstract final class FrostMetrics {
   };
 
   /// Pointer hover zooms a media card's picture inside its frame.
-  static const mediaHoverZoom = 1.02;
+  static const mediaHoverZoom = 1.03;
 
-  /// Horizontal padding that centres a content column in a viewport of
+  /// Horizontal padding that starts a capped content column in a viewport of
   /// [width]: the column is at most [maxWidth] wide including its inset.
   /// Browse columns keep their text at least [browseInset] from the edge; a
-  /// reading column uses [pageInset].
+  /// reading column uses the same [browseInset] scale.
   static EdgeInsets columnPadding(double width, {double maxWidth = contentMaxWidth}) {
-    final inset = maxWidth == readingMaxWidth ? pageInset : browseInset(width);
-    return EdgeInsets.symmetric(horizontal: math.max(inset, (width - maxWidth) / 2 + inset));
+    final inset = browseInset(width);
+    return EdgeInsets.only(left: inset, right: math.max(0.0, width - maxWidth) + inset);
   }
 
   /// Tab bar padding that puts the first label on [browseInset]. It is 0 on
@@ -111,6 +84,9 @@ abstract final class FrostMotion {
   static const exit = Duration(milliseconds: 220);
   // Skeleton to content, empty or error.
   static const reveal = Duration(milliseconds: 220);
+
+  /// Disappearance is shorter than reveal and uses easeInCubic.
+  static const dismiss = Duration(milliseconds: 160);
   static const imageFade = Duration(milliseconds: 160);
 
   /// Cross-fade that replaces movement when reduced motion is on.
@@ -130,6 +106,10 @@ abstract final class FrostMotion {
   /// Press release, switches, sliders and indicators.
   static final snappy = SpringDescription.withDurationAndBounce(duration: snappyDuration);
 
+  /// Small confirmation feedback only (for example toggling a social action).
+  /// Never use this bouncing spring for layout or floating surfaces.
+  static final bouncy = SpringDescription.withDurationAndBounce(duration: snappyDuration, bounce: .2);
+
   /// Menus, panels, the sidebar, toasts and heroes.
   static final standard = SpringDescription.withDurationAndBounce(duration: standardDuration);
 
@@ -137,7 +117,8 @@ abstract final class FrostMotion {
   static final gentle = SpringDescription.withDurationAndBounce(duration: gentleDuration);
 
   /// Drives [controller] to [target] on [spring], from its current value and
-  /// velocity; with reduced motion it jumps there.
+  /// velocity, bounded to avoid crossing the new target for geometry springs;
+  /// with reduced motion it jumps there.
   static TickerFuture springTo(BuildContext context, AnimationController controller, double target, SpringDescription spring) {
     if (MediaQuery.disableAnimationsOf(context)) {
       controller.value = target;
@@ -145,6 +126,6 @@ abstract final class FrostMotion {
     }
     // Snapping lands exactly on the target, so a settled opacity or scale
     // never lingers a hair away from 1 (and keeps its layer).
-    return controller.animateWith(SpringSimulation(spring, controller.value, target, controller.velocity, snapToEnd: true));
+    return controller.animateWith(frostSpringSimulation(spring, controller.value, target, controller.velocity));
   }
 }

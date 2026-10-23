@@ -24,7 +24,7 @@ class FrostFontWarmUp extends StatefulWidget {
 }
 
 class _FrostFontWarmUpState extends State<FrostFontWarmUp> {
-  static const _weights = [FontWeight.w400, FontWeight.w700];
+  static const _weights = [FontWeight.w300, FontWeight.w400, FontWeight.w500, FontWeight.w600];
   int? _warmedConfiguration;
 
   @override

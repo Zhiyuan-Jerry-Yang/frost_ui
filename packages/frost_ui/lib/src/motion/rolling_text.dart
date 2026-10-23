@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:frost_ui/src/foundation/metrics.dart';
-import 'package:frost_ui/src/motion/spring.dart';
+import 'package:skeletonizer/skeletonizer.dart';
+
+import '../feedback/_skeleton_geometry.dart';
+import '../foundation/metrics.dart';
+import 'spring.dart';
 
 /// A count whose changed characters roll to their new value, upward when
 /// the number grows and downward when it shrinks.
@@ -33,6 +36,9 @@ class _FrostRollingTextState extends State<FrostRollingText> {
 
   @override
   Widget build(BuildContext context) {
+    if (Skeletonizer.maybeOf(context)?.enabled == true) {
+      return FrostSkeletonText(child: Text(widget.text, style: widget.style));
+    }
     final characters = widget.text.characters.toList();
     final duration = FrostMotion.duration(context, FrostMotion.expand);
     return Semantics(
@@ -58,7 +64,10 @@ class _FrostRollingTextState extends State<FrostRollingText> {
                     child: child,
                   );
                 },
-                child: Text(characters[index], key: ValueKey(characters[index]), style: widget.style),
+                child: FrostSkeletonText(
+                  key: ValueKey(characters[index]),
+                  child: Text(characters[index], key: ValueKey(characters[index]), style: widget.style),
+                ),
               ),
             ),
         ],

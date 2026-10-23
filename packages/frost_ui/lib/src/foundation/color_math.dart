@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+/// A palette check chooses between white and the palette's light-mode ink.
+Color swatchCheckInk(Color fill, Color darkInk) => colorContrast(fill, Colors.white) >= colorContrast(fill, darkInk) ? Colors.white : darkInk;
+
 double colorContrast(Color first, Color second) {
   final a = first.computeLuminance();
   final b = second.computeLuminance();

@@ -23,7 +23,10 @@ enum FrostContentScript { japanese, simplifiedChinese, traditionalChinese }
 /// the chain.
 @immutable
 class FrostFonts {
-  const FrostFonts({required this.japanese, required this.simplifiedChinese, this.traditionalChinese, this.defaultScript});
+  const FrostFonts({required this.japanese, required this.simplifiedChinese, this.traditionalChinese, this.defaultScript, this.monospace});
+
+  /// Optional bundled monospace family; otherwise typography uses the platform default.
+  final String? monospace;
 
   /// Bundled family with Japanese regional forms.
   final String japanese;
@@ -104,10 +107,11 @@ class FrostFonts {
       other.japanese == japanese &&
       other.simplifiedChinese == simplifiedChinese &&
       other.traditionalChinese == traditionalChinese &&
-      other.defaultScript == defaultScript;
+      other.defaultScript == defaultScript &&
+      other.monospace == monospace;
 
   @override
-  int get hashCode => Object.hash(japanese, simplifiedChinese, traditionalChinese, defaultScript);
+  int get hashCode => Object.hash(japanese, simplifiedChinese, traditionalChinese, defaultScript, monospace);
 }
 
 // Common characters whose simplified and traditional forms differ. A text is
