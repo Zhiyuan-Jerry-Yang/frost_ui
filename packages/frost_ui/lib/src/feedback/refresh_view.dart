@@ -3,9 +3,10 @@ import 'dart:developer';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:frost_ui/src/foundation/tokens.dart';
-import 'package:frost_ui/src/feedback/refresh_indicator.dart';
 import 'package:pull_to_refresh_notification/pull_to_refresh_notification.dart';
+
+import '../foundation/tokens.dart';
+import 'refresh_indicator.dart';
 
 typedef FrostRefreshViewBuilder = Widget Function(BuildContext context, ScrollPhysics? physics, FrostRefreshLocators locators);
 
@@ -71,13 +72,27 @@ class FrostNestedRefreshView extends StatefulWidget {
 mixin _DataRefreshCallbackMixin<T extends StatefulWidget> on State<T> {
   FrostRefreshAction? get _onRefresh;
 
-  Future<bool> _handleRefresh() async {
+  Future<bool>? _refreshTask;
+
+  Future<bool> _handleRefresh() {
+    final active = _refreshTask;
+    if (active != null) return active;
+    late final Future<bool> task;
+    task = _refresh().whenComplete(() {
+      if (identical(_refreshTask, task)) _refreshTask = null;
+    });
+    _refreshTask = task;
+    return task;
+  }
+
+  Future<bool> _refresh() async {
     final onRefresh = _onRefresh;
     if (onRefresh == null) {
       return true;
     }
 
     await _waitForSafeCallbackPhase();
+    if (!mounted) return false;
     try {
       return await Future<bool>.value(onRefresh());
     } catch (e, s) {
@@ -106,7 +121,7 @@ class _DataRefreshViewState extends State<FrostRefreshView> with _DataRefreshCal
   @override
   Widget build(BuildContext context) {
     final child = ScrollConfiguration(
-      behavior: frostRefreshScrollBehavior,
+      behavior: frostRefreshPageScrollBehavior,
       child: PrimaryScrollController(
         controller: _effectiveScrollController,
         automaticallyInheritForPlatforms: _dataRefreshPrimaryScrollPlatforms,
@@ -120,7 +135,8 @@ class _DataRefreshViewState extends State<FrostRefreshView> with _DataRefreshCal
       refreshOffset: FrostRefreshSliverHeader.refreshOffset,
       reachToRefreshOffset: FrostRefreshSliverHeader.reachToRefreshOffset,
       armedDragUpCancel: false,
-      pullBackOnRefresh: true,
+      // Keep the refresh extent until the action Future completes.
+      pullBackOnRefresh: false,
       pullBackOnError: true,
       onRefresh: _handleRefresh,
       // Refresh availability can change with a tab. Keep the child at the
@@ -165,7 +181,8 @@ class _DataNestedRefreshViewState extends State<FrostNestedRefreshView> with _Da
       refreshOffset: FrostRefreshSliverHeader.refreshOffset,
       reachToRefreshOffset: FrostRefreshSliverHeader.reachToRefreshOffset,
       armedDragUpCancel: false,
-      pullBackOnRefresh: true,
+      // Keep the refresh extent until the action Future completes.
+      pullBackOnRefresh: false,
       pullBackOnError: true,
       onRefresh: _handleRefresh,
       notificationPredicate: (notification) => widget.onRefresh != null && defaultNotificationPredicate(notification),

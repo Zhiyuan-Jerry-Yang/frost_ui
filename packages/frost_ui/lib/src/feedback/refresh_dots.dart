@@ -1,8 +1,11 @@
-import 'package:frost_ui/src/foundation/metrics.dart';
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
-import 'package:frost_ui/src/foundation/scope.dart';
-import 'package:frost_ui/src/foundation/tokens.dart';
+
+import '../foundation/metrics.dart';
+import '../foundation/scope.dart';
+import '../foundation/sizes.dart';
+import '../foundation/tokens.dart';
 
 class FrostRefreshDots extends StatefulWidget {
   const FrostRefreshDots({super.key});
@@ -11,6 +14,7 @@ class FrostRefreshDots extends StatefulWidget {
 }
 
 class _RefreshDotsState extends State<FrostRefreshDots> with SingleTickerProviderStateMixin {
+  static const _dotsWidth = 24.0; // Fixed layout width of the three refresh dots, independent of density.
   late final AnimationController _animation = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
   bool _reduceMotion = false;
 
@@ -35,8 +39,8 @@ class _RefreshDotsState extends State<FrostRefreshDots> with SingleTickerProvide
   Widget build(BuildContext context) => Semantics(
     label: FrostScope.labelsOf(context).refreshing,
     child: SizedBox(
-      width: 24,
-      height: 20,
+      width: _dotsWidth,
+      height: FrostControlSize.regular.iconSize,
       child: AnimatedBuilder(
         animation: _animation,
         builder: (context, _) => Row(

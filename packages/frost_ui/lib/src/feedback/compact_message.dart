@@ -1,8 +1,18 @@
-import 'package:flutter/material.dart';
-import 'package:frost_ui/src/controls/icon.dart';
-import 'package:frost_ui/src/feedback/error_content.dart';
-import 'package:frost_ui/src/foundation/metrics.dart';
-import 'package:frost_ui/src/foundation/scope.dart';
+import 'package:flutter/widgets.dart';
+
+import '../controls/buttons.dart';
+import '../foundation/radius.dart';
+import '../foundation/scope.dart';
+import '../foundation/sizes.dart';
+import '../foundation/spacing.dart';
+import '../foundation/tokens.dart';
+import '../foundation/typography.dart';
+import '../primitives/icon.dart';
+import '../primitives/text.dart';
+import 'error_content.dart';
+
+// Inline messages pair their footnote text with a same-line semantic icon.
+const _compactIconSize = 16.0;
 
 /// A one-line message inside content: an icon, the text, an optional action,
 /// and optional technical detail one tap away.
@@ -25,41 +35,36 @@ class FrostCompactMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final tokens = FrostThemeTokens.of(context);
     final error = this.error;
     final presenter = FrostScope.errorsOf(context);
     final message = error == null ? this.message! : presenter.message(context, error);
     final details = error == null ? this.details : presenter.details(error);
     final actionLabel = this.actionLabel ?? (error == null ? null : FrostScope.labelsOf(context).retry);
     final icons = FrostIconSet.of(context);
+    final mappedIcon = error == null ? null : presenter.icon?.call(context, error);
     return DecoratedBox(
-      decoration: BoxDecoration(color: colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(FrostMetrics.controlRadius)),
+      decoration: ShapeDecoration(color: tokens.fillSubtle, shape: FrostRadius.shape(context, FrostRadius.md)),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        padding: const EdgeInsets.symmetric(horizontal: FrostGap.related, vertical: FrostGap.related),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               children: [
-                FrostIcon(icon ?? icons.error, size: 16, color: colorScheme.onSurfaceVariant),
-                const SizedBox(width: 8),
+                FrostIcon(
+                  icon ?? mappedIcon ?? icons.error,
+                  size: _compactIconSize,
+                  color: error == null || mappedIcon != null ? tokens.textSecondary : tokens.negativeInk,
+                ),
+                const SizedBox(width: FrostGap.related),
                 Expanded(
-                  child: Text(message, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant)),
+                  child: FrostText(message, role: FrostTextRole.footnote, tone: FrostTextTone.secondary),
                 ),
                 if (actionLabel != null && onAction != null) ...[
-                  const SizedBox(width: 8),
-                  TextButton.icon(
-                    onPressed: onAction,
-                    icon: FrostIcon(icons.refresh, size: 16),
-                    label: Text(actionLabel),
-                    style: TextButton.styleFrom(
-                      overlayColor: Colors.transparent,
-                      minimumSize: const Size(0, FrostMetrics.controlHeight),
-                      tapTargetSize: MaterialTapTargetSize.padded,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                    ),
-                  ),
+                  const SizedBox(width: FrostGap.related),
+                  FrostButton(onPressed: onAction, icon: icons.refresh, label: actionLabel, variant: FrostButtonVariant.plain, size: FrostControlSize.compact),
                 ],
               ],
             ),

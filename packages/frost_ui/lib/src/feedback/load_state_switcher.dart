@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:frost_ui/src/foundation/metrics.dart';
-import 'package:frost_ui/src/motion/layout_crossfade.dart';
+
+import '../foundation/metrics.dart';
+import '../motion/layout_crossfade.dart';
 
 /// A phase has one live tree. The previous painted frame fades away without
 /// retaining scroll positions, provider leases, GlobalKeys or input targets.

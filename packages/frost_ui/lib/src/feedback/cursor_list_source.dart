@@ -1,4 +1,4 @@
-import 'package:frost_ui/src/feedback/list_source.dart';
+import 'list_source.dart';
 
 abstract class FrostCursorListSource<Item, Page> extends FrostListSource<Item> {
   String? _nextUrl;
