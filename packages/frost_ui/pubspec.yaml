@@ -1,7 +1,7 @@
 name: frost_ui
 description: Shared UI foundation for normalllll's apps.
 publish_to: none
-version: 0.1.0
+version: 0.2.0
 
 environment:
   sdk: ^3.12.1
@@ -10,7 +10,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_svg: ^2.3.0
   loading_more_list: ^7.1.0
   pull_to_refresh_notification: ^3.1.1
   skeletonizer: ^3.0.0
