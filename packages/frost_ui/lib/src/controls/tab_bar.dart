@@ -1,30 +1,34 @@
 import 'package:flutter/material.dart';
-import 'package:frost_ui/src/foundation/metrics.dart';
+
+import '../feedback/_skeleton_geometry.dart';
+import '../foundation/_control_geometry.dart';
+import '../foundation/_layout_scope.dart';
+import '../foundation/_tab_metrics.dart';
+import '../foundation/metrics.dart';
+import '../foundation/radius.dart';
+import '../foundation/sizes.dart';
+import '../foundation/tokens.dart';
+import '../foundation/typography.dart';
+import '../primitives/_click_feedback.dart';
+import '../primitives/click_surface.dart' show FrostClickFeedback;
+import '../primitives/icon.dart';
+import '../primitives/keyline.dart';
+
+class FrostTab {
+  const FrostTab({required this.label, this.icon});
+  final String label;
+  final FrostIconData? icon;
+}
 
 /// Native tabs with a spring for click-driven indicator motion. The supplied
 /// controller remains the sole owner of content selection and page dragging.
-class FrostTabBar extends StatefulWidget implements PreferredSizeWidget {
-  const FrostTabBar({
-    required this.tabs,
-    this.controller,
-    this.isScrollable = false,
-    this.tabAlignment,
-    this.dividerColor,
-    this.labelPadding,
-    this.onTap,
-    super.key,
-  });
+class FrostTabBar extends StatefulWidget {
+  const FrostTabBar({required this.tabs, this.controller, this.scrollable = false, this.onTap, super.key});
 
-  final List<Widget> tabs;
+  final List<FrostTab> tabs;
   final TabController? controller;
-  final bool isScrollable;
-  final TabAlignment? tabAlignment;
-  final Color? dividerColor;
-  final EdgeInsetsGeometry? labelPadding;
+  final bool scrollable;
   final ValueChanged<int>? onTap;
-
-  @override
-  Size get preferredSize => TabBar(tabs: tabs).preferredSize;
 
   @override
   State<FrostTabBar> createState() => _AppTabBarState();
@@ -32,6 +36,7 @@ class FrostTabBar extends StatefulWidget implements PreferredSizeWidget {
 
 class _AppTabBarState extends State<FrostTabBar> with TickerProviderStateMixin {
   _IndicatorTabController? _visual;
+  final _focused = <int>{};
 
   void _bindController() {
     final source = widget.controller ?? DefaultTabController.of(context);
@@ -61,17 +66,136 @@ class _AppTabBarState extends State<FrostTabBar> with TickerProviderStateMixin {
   }
 
   @override
-  Widget build(BuildContext context) => TabBar(
-    controller: _visual,
-    tabs: widget.tabs,
-    isScrollable: widget.isScrollable,
-    tabAlignment: widget.tabAlignment,
-    dividerColor: widget.dividerColor,
-    labelPadding: widget.labelPadding,
-    onTap: widget.onTap,
-    // Let Flutter derive each label's actual bounds, including RTL and
-    // horizontal scrolling. Only the progress fed to that geometry changes.
-    indicatorAnimation: TabIndicatorAnimation.linear,
+  Widget build(BuildContext context) {
+    final tokens = FrostThemeTokens.of(context);
+    final geometry = frostControlGeometry(context, FrostControlSize.regular, role: FrostTextRole.callout);
+    final style = FrostTypography.of(context).style(FrostTextRole.callout);
+    final direction = Directionality.of(context) == TextDirection.ltr ? 1.0 : -1.0;
+    final contentWidth = widget.scrollable || FrostSizeClass.of(context) != FrostSizeClass.compact;
+    return FrostBleed(
+      amount: frostTabInset,
+      child: TabBar(
+        controller: _visual,
+        tabs: [
+          for (var i = 0; i < widget.tabs.length; i++)
+            _TabLabel(
+              tab: widget.tabs[i],
+              index: i,
+              controller: _visual!.source,
+              height: geometry.height - frostTabIndicatorHeight,
+              focused: _focused.contains(i),
+            ),
+        ],
+        isScrollable: contentWidth,
+        tabAlignment: contentWidth ? TabAlignment.start : TabAlignment.fill,
+        dividerColor: tokens.separator,
+        dividerHeight: 1 / MediaQuery.devicePixelRatioOf(context),
+        labelPadding: EdgeInsets.zero,
+        padding: EdgeInsets.zero,
+        labelStyle: style,
+        unselectedLabelStyle: style,
+        labelColor: tokens.textPrimary,
+        unselectedLabelColor: tokens.textSecondary,
+        indicator: FrostTabIndicator(
+          color: tokens.keyGraphicOn(tokens.surface),
+          progress: _visual!.animation,
+          textOffsets: [for (final tab in widget.tabs) tab.icon == null ? 0 : direction * (FrostControlSize.regular.iconSize + frostTabIconGap) / 2],
+        ),
+        indicatorSize: TabBarIndicatorSize.label,
+        indicatorPadding: EdgeInsets.zero,
+        indicatorWeight: frostTabIndicatorHeight,
+        automaticIndicatorColorAdjustment: false,
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        splashFactory: NoSplash.splashFactory,
+        splashBorderRadius: FrostRadius.borderRadius(FrostRadius.sm),
+        mouseCursor: SystemMouseCursors.click,
+        onTap: widget.onTap,
+        onFocusChange: (focused, index) => setState(() {
+          if (focused) {
+            _focused.add(index);
+          } else {
+            _focused.remove(index);
+          }
+        }),
+        // Flutter derives label bounds for RTL/scrolling; only progress springs.
+        indicatorAnimation: TabIndicatorAnimation.linear,
+      ),
+    );
+  }
+}
+
+class _TabLabel extends StatefulWidget {
+  const _TabLabel({required this.tab, required this.index, required this.controller, required this.height, required this.focused});
+  final FrostTab tab;
+  final int index;
+  final TabController controller;
+  final double height;
+  final bool focused;
+  @override
+  State<_TabLabel> createState() => _TabLabelState();
+}
+
+class _TabLabelState extends State<_TabLabel> {
+  bool _hovered = false;
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.controller,
+    builder: (context, _) {
+      final tokens = FrostThemeTokens.of(context);
+      final selected = widget.controller.index == widget.index;
+      final style = FrostTypography.of(context).style(FrostTextRole.callout);
+      // Reserve selected typography, so changing weight cannot shift the mark.
+      final painter = TextPainter(
+        text: TextSpan(text: widget.tab.label, style: style),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout();
+      final width = painter.width;
+      painter.dispose();
+      return MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: FrostClickFeedbackVisual(
+          states: {if (_hovered) WidgetState.hovered, if (widget.focused) WidgetState.focused},
+          feedback: FrostClickFeedback.quiet,
+          shape: FrostRadius.shape(context, FrostRadius.sm),
+          clipsContent: false,
+          child: SizedBox(
+            height: widget.height,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: frostTabInset),
+              child: TweenAnimationBuilder<Color?>(
+                tween: ColorTween(end: selected ? tokens.textPrimary : tokens.textSecondary),
+                duration: FrostMotion.duration(context, FrostMotion.hover),
+                curve: FrostMotion.hoverCurve,
+                builder: (context, color, _) => Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.tab.icon case final icon?) ...[
+                      FrostIcon(icon, size: FrostControlSize.regular.iconSize, color: color),
+                      const SizedBox(width: frostTabIconGap),
+                    ],
+                    Flexible(
+                      child: SizedBox(
+                        width: width,
+                        child: FrostSkeletonText(
+                          child: Text(
+                            widget.tab.label,
+                            style: style.copyWith(color: color),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
   );
 }
 
