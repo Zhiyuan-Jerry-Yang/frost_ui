@@ -5,3 +5,12 @@ formatter:
 analyzer:
   exclude:
     - build/**
+
+# Within lib/, use relative imports/exports for this package and import the
+# defining library rather than frost_ui.dart. Across packages (including tests
+# importing lib/), use package: URIs. avoid_relative_lib_imports is inherited
+# from flutter_lints; do not pair these rules with always_use_package_imports.
+linter:
+  rules:
+    prefer_relative_imports: true
+    directives_ordering: true
