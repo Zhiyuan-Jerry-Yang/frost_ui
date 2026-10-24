@@ -14,7 +14,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 repository="$fixture/repository with spaces"
 mkdir -p "$fixture/bin" "$repository/tool" "$repository/packages/frost_ui" \
-  "$repository/packages/frost_window/example" "$repository/packages/frost_ui_catalog"
+  "$repository/packages/frost_window/example"
 cp "$script_directory/checks.sh" "$repository/tool/checks.sh"
 cat > "$fixture/bin/command" <<'STUB'
 #!/bin/sh
@@ -64,12 +64,12 @@ CHECKS_FAIL_AT=0
 export CHECKS_FAIL_AT
 # Both invocation forms work from outside the repository, including spaced paths.
 cd -- "$fixture"
-assert_run 0 10 sh "$repository/tool/checks.sh" HEAD
-assert_run 0 10 sh "$repository/tool/checks.sh" HEAD "$repository"
+assert_run 0 7 sh "$repository/tool/checks.sh" HEAD
+assert_run 0 7 sh "$repository/tool/checks.sh" HEAD "$repository"
 
 # Each check can fail independently; later successes must not erase that failure.
-for CHECKS_FAIL_AT in 1 2 3 4 5 6 7 8 9 10; do
-  assert_run 1 10 sh "$repository/tool/checks.sh" HEAD
+for CHECKS_FAIL_AT in 1 2 3 4 5 6 7; do
+  assert_run 1 7 sh "$repository/tool/checks.sh" HEAD
   grep -q 'original failure diagnostic' "$fixture/output"
   grep -q 'exit 23' "$fixture/output"
 done
@@ -81,5 +81,5 @@ assert_run 2 0 sh "$repository/tool/checks.sh" invalid
 
 # A failed package cd must not run checks in the wrong directory.
 rmdir "$repository/packages/frost_ui"
-assert_run 1 8 sh "$repository/tool/checks.sh" HEAD
+assert_run 1 5 sh "$repository/tool/checks.sh" HEAD
 printf 'PASS: %s checks.sh regression cases (fixture commands only)\n' "$cases"

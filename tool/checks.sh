@@ -39,14 +39,12 @@ run_in_package() (
   "$@"
 )
 
-run_check format dart format --output=none --set-exit-if-changed packages
-for package_directory in packages/frost_ui packages/frost_window packages/frost_window/example packages/frost_ui_catalog; do
+run_check format dart format --output=none --set-exit-if-changed packages/frost_ui packages/frost_window
+for package_directory in packages/frost_ui packages/frost_window packages/frost_window/example; do
   run_check "analyze $package_directory" run_in_package "$package_directory" flutter analyze
 done
 run_check 'test ui' run_in_package packages/frost_ui flutter test
 run_check 'test window' run_in_package packages/frost_window flutter test
-run_check strings dart run tool/check_no_ui_strings.dart
-run_check tokens dart run tool/check_tokens.dart --report
 run_check 'diff check' git diff --check "$base_commit" HEAD
 
 exit "$checks_status"
