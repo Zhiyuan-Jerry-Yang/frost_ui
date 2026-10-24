@@ -8,6 +8,9 @@ export 'package:flutter/material.dart'
     show ButtonStyle, DateTimeRange, DefaultTabController, RefreshCallback, TabBarView, TabController, ThemeData, ThemeExtension, ThemeMode, TimeOfDay;
 export 'package:flutter/services.dart' show LogicalKeyboardKey, TextInputAction;
 
+// Apps select one UI revision; the native plugin follows that same checkout.
+export 'package:frost_window/frost_window.dart';
+
 export 'src/controls/buttons.dart';
 export 'src/controls/checkbox.dart' show FrostCheckbox;
 export 'src/controls/checkbox_row.dart' show FrostCheckboxRow;
@@ -113,6 +116,7 @@ export 'src/layout/shelf.dart';
 export 'src/layout/sliver_expand.dart';
 export 'src/layout/waterfall_grid.dart';
 export 'src/layout/window_caption_scope.dart';
+export 'src/layout/window_host.dart';
 export 'src/layout/wrap.dart' show FrostWrap;
 export 'src/lists/grouped_section.dart';
 export 'src/lists/list.dart';
@@ -137,6 +141,7 @@ export 'src/motion/layout_crossfade.dart';
 export 'src/motion/page_transition.dart' hide frostOwnedPageTransition;
 export 'src/motion/rolling_text.dart';
 export 'src/motion/spring.dart';
+export 'src/navigation/back.dart';
 export 'src/navigation/detail_page.dart';
 export 'src/navigation/inspector.dart' show FrostInspector, FrostInspectorPresentation;
 export 'src/navigation/page_header.dart';

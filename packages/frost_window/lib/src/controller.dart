@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:frost_ui/frost_ui.dart';
 
 /// Whether a native desktop window plugin can be contacted. Actual decoration
 /// geometry and controls come from FrostWindowState, independently of Theme.
@@ -16,6 +15,16 @@ bool get frostUsesCustomTitleBar =>
 /// The requested system backdrop. [none] means no system backdrop: the app's
 /// ambient image or solid base supplies the window background.
 enum FrostWindowBackdrop { none, mica, micaAlt }
+
+/// The actual decoration mode negotiated with the native window host.
+enum FrostCaptionMode { system, client, nativeControls }
+
+enum FrostCaptionAction { minimize, maximize, close }
+
+/// Reported by the native host, independently of the app's Theme.platform.
+enum FrostCaptionStyle { windows, adwaita, breeze }
+
+enum FrostCaptionIcon { minimize, maximize, restore, close }
 
 class FrostWindowFailure implements Exception {
   const FrostWindowFailure();

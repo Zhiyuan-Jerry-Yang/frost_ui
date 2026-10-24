@@ -8,6 +8,8 @@ environment:
   flutter: ">=3.47.0"
 
 dependencies:
+  frost_window:
+    path: ../frost_window
   flutter:
     sdk: flutter
   loading_more_list: ^7.1.0

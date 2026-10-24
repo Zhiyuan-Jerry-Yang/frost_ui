@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:frost_ui/frost_ui.dart';
-import 'package:frost_window/frost_window.dart';
 
 // Manual test bench for the native window: caption drag and double-click,
 // edge and corner resizing (including over the right-edge scrollbar), Snap

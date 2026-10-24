@@ -3,6 +3,7 @@ import 'dart:ui' show FlutterView;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
+import 'package:frost_window/frost_window.dart' show FrostCaptionAction, FrostCaptionIcon, FrostCaptionMode, FrostCaptionStyle;
 
 /// Native window actions and layout-time caption hit-region collection.
 class FrostWindowCaptionScope extends StatefulWidget {
@@ -59,17 +60,7 @@ class FrostHitRegion {
   int get hashCode => Object.hash(rect, kind);
 }
 
-/// The actual decoration mode negotiated with the native window host.
-enum FrostCaptionMode { system, client, nativeControls }
-
-enum FrostCaptionAction { minimize, maximize, close }
-
 enum FrostCaptionSide { left, right }
-
-/// Reported by the native host, independently of the app's Theme.platform.
-enum FrostCaptionStyle { windows, adwaita, breeze }
-
-enum FrostCaptionIcon { minimize, maximize, restore, close }
 
 @immutable
 class FrostCaptionState {

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:frost_window/frost_window.dart' show FrostCaptionAction, FrostCaptionIcon, FrostCaptionMode, FrostCaptionStyle;
 
 import '../foundation/color_math.dart';
 import '../foundation/feedback.dart';

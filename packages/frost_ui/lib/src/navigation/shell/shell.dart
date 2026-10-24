@@ -3,6 +3,7 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:frost_window/frost_window.dart' show FrostCaptionMode;
 
 import '../../controls/_button_control.dart';
 import '../../controls/buttons.dart';

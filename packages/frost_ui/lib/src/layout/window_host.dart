@@ -2,9 +2,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:frost_ui/frost_ui.dart';
-import 'back.dart';
-import 'controller.dart';
+import 'package:frost_window/frost_window.dart';
+
+import '../foundation/scope.dart';
+import '../navigation/back.dart';
+import '../navigation/window_caption.dart';
+import 'window_caption_scope.dart';
 
 /// Native window behaviour without a drawn frame. Install above the Navigator
 /// so caption controls can stay outside route and dialog barriers.
