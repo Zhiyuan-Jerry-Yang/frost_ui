@@ -45,3 +45,32 @@ with the project-local `flutter.config.enable-swift-package-manager: false`.
 Keep that validation setting local to the test copy instead of changing the
 machine-wide Flutter configuration. A successful mixed build does not establish
 that the app is independent of CocoaPods.
+
+## Linux caption appearance
+
+Client decorations use system symbolic window icons, an Adwaita baseline, and
+limited Breeze hover styling. Missing, non-symbolic, or invalid icon resources
+use Frost's vector fallback. Layout follows GTK settings, including a single
+close button and leading/trailing controls. Theme and display-scale changes
+refresh icons. This intentionally does not reproduce arbitrary GTK/KWin window
+decoration themes. Window movement, resizing and state remain native GDK calls.
+
+macOS keeps AppKit's original traffic lights in the transparent full-size content
+title region. Applications reserve their reported bounds with
+`FrostNativeCaptionPadding`. `FrostShell` keeps a native-only draggable strip
+(normally 28 logical pixels, growing with measured native controls) and puts Back
+on the sidebar icon axis below it. The brand appears beside Back only while the
+sidebar is expanded. Wide mobile layouts without a client titlebar share this
+sidebar header; Windows/Linux client captions keep their existing navigation. No SDK, engine or dependency patches are required.
+
+Native contract checks (no screenshots or probe windows shown):
+
+```sh
+sh packages/frost_window/test/check_linux_caption.sh /path/to/app/linux/flutter/ephemeral
+sh packages/frost_window/test/check_macos_caption.sh /path/to/FlutterMacOS.xcframework/macos-arm64_x86_64
+```
+
+Run from the repository root with the target platform's compiler/display session.
+The Linux check needs GTK 3.24 development libraries and an installed symbolic
+icon theme. Flutter widget checks cover caption layout, keyboard operation and
+macOS native-control clearance; these native checks cover the actual host APIs.

@@ -8,6 +8,7 @@ import '../../controls/_button_control.dart';
 import '../../controls/buttons.dart';
 import '../../controls/picker_option.dart';
 import '../../feedback/_skeleton_geometry.dart';
+import '../../foundation/_control_geometry.dart';
 import '../../foundation/density.dart';
 import '../../foundation/icon_data.dart';
 import '../../foundation/mask.dart';
@@ -118,9 +119,10 @@ class FrostShellGeometry {
 /// The app's navigation shell: a desktop sidebar (or a phone bottom bar)
 /// around the current page. Routing stays in the app; the shell reports
 /// selections and owns page-level Back and Escape. Desktop platforms keep one
-/// Back control in the native title row before the fixed brand, or the first
-/// sidebar row without a native title row. It stays disabled at the root.
-/// Android/iOS keep Back in the content page header.
+/// Back control beside the brand in an available client title row. Native
+/// window controls and hosts without a client title row use the sidebar header:
+/// fixed Back on the navigation icon axis, with the brand revealed on expansion.
+/// Compact layouts keep Back in the content page header.
 class FrostShell extends StatefulWidget {
   const FrostShell({
     required this.destinations,
@@ -185,8 +187,9 @@ class FrostShell extends StatefulWidget {
   /// Desktop layers placed over the page, aligned with the sidebar.
   final Widget Function(BuildContext context, FrostShellGeometry geometry)? desktopOverlayBuilder;
 
-  /// Optional app identity beside the expansion control when expanded.
-  /// Brand content belongs only to an available custom window caption.
+  /// Optional app identity in the client title row, or beside Back in an
+  /// expanded sidebar when the native host owns the title controls.
+  /// Hosts without a window caption use the same sidebar placement.
   final Widget? brand;
   final Widget child;
 
@@ -302,8 +305,14 @@ class _FrostShellState extends State<FrostShell> with SingleTickerProviderStateM
         final canExpand = besidePage || (useHorizontalLayout && style.expandsOverContent);
         final showSidebar = useHorizontalLayout;
         final hasCaption = FrostWindowCaptionScope.windowOf(context) != null;
-        final nativeControls = FrostWindowCaptionScope.stateOf(context)?.nativeControls ?? Rect.zero;
-        final captionHeight = math.max(_shellCaptionHeight, nativeControls.isEmpty ? 0.0 : nativeControls.bottom + FrostGap.related);
+        final captionState = FrostWindowCaptionScope.stateOf(context);
+        final nativeControls = captionState?.nativeControls ?? Rect.zero;
+        final usesCaptionNavigation = hasCaption && captionState?.mode == FrostCaptionMode.client;
+        // The native-controls strip contains no app navigation. Keep its normal
+        // 28px height, but grow for actual AppKit geometry rather than clipping it.
+        final captionHeight = captionState?.mode == FrostCaptionMode.nativeControls
+            ? math.max(_nativeCaptionHeight, nativeControls.isEmpty ? 0.0 : nativeControls.bottom + FrostGap.inline)
+            : _shellCaptionHeight;
         return _FrostDestinationNavigation(
           enabled: !useHorizontalLayout && widget.showsMobileNavigation,
           navigation: _MobileNavBar(destinations: widget.destinations, selectedIndex: widget.selectedIndex ?? 0, onDestinationSelected: _selectIndex),
@@ -350,8 +359,8 @@ class _FrostShellState extends State<FrostShell> with SingleTickerProviderStateM
                             final overPage = !besidePage && progress > 0;
                             final frame = _frame(context);
                             final overlay = widget.desktopOverlayBuilder;
-                            // A system-owned title bar is followed by a real shell
-                            // navigation row, rather than an empty caption spacer.
+                            // Native window controls stay above application
+                            // navigation; the sidebar header shares its icon axis.
                             final sidebarTop =
                                 (hasCaption ? captionHeight : 0.0) + math.max(frame.top, !hasCaption && style is _FrostInsetSidebar ? FrostGap.related : 0.0);
                             // Only positioned layers: the Stack must take the body size.
@@ -419,17 +428,9 @@ class _FrostShellState extends State<FrostShell> with SingleTickerProviderStateM
                                           metrics: metrics,
                                           itemForm: style.itemForm,
                                           progress: progress,
-                                          backControl: !hasCaption
-                                              ? _SidebarBack(
-                                                  key: const ValueKey('frost-shell-back'),
-                                                  label: FrostScope.labelsOf(context).back,
-                                                  icon: FrostIconSet.of(context).back,
-                                                  onTap: canGoBack ? goBack : null,
-                                                  progress: progress,
-                                                  form: style.itemForm,
-                                                  indicatorInset: _SidebarNavigation._innerPadding,
-                                                )
-                                              : null,
+                                          header: usesCaptionNavigation
+                                              ? null
+                                              : _SidebarHeader(metrics: metrics, progress: progress, brand: widget.brand, onBack: canGoBack ? goBack : null),
                                           controls: _SidebarToggle(expanded: _expandedTarget, onToggle: canExpand ? _toggleExpansion : null),
                                           onDestinationSelected: _selectIndex,
                                           onSecondarySelected: _selectSecondary,
@@ -447,9 +448,9 @@ class _FrostShellState extends State<FrostShell> with SingleTickerProviderStateM
                                     child: _CaptionRow(
                                       iconAxis: frame.left + metrics.railWidth / 2,
                                       nativeCaption: hasCaption,
-                                      showsBack: useHorizontalLayout,
+                                      showsBack: usesCaptionNavigation && useHorizontalLayout,
                                       onBack: canGoBack ? goBack : null,
-                                      brand: widget.brand,
+                                      brand: usesCaptionNavigation ? widget.brand : null,
                                     ),
                                   ),
                                 if (useHorizontalLayout && overlay != null)

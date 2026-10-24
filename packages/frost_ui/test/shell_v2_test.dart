@@ -115,12 +115,12 @@ void main() {
             platform: platform,
           ),
         );
-        expect(find.text('Capability brand'), caption ? findsOneWidget : findsNothing);
+        expect(find.text('Capability brand'), findsOneWidget);
         expect(findFrostTooltip('L.back'), findsOneWidget);
         if (!caption) {
           final back = tester.getRect(findFrostTooltip('L.back'));
           final first = tester.getRect(find.byType(FrostNavItem).first);
-          expect(first.top, closeTo(back.bottom + FrostGap.inline, .01), reason: 'removing the brand must also remove its forty-pixel slot');
+          expect(first.top, closeTo(back.bottom + FrostGap.inline, .01), reason: 'brand shares the Back row instead of adding another vertical slot');
         }
         expect(tester.takeException(), isNull);
       });

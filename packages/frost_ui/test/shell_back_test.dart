@@ -12,7 +12,7 @@ const _body = ValueKey('back-test-body');
 Finder _back() => find.byKey(const ValueKey('frost-shell-back'));
 bool _enabled(WidgetTester tester) => switch (tester.widget(_back())) {
   FrostButtonControl(:final onPressed) => onPressed != null,
-  FrostNavItem(:final onTap) => onTap != null,
+  FrostButton(:final onPressed) => onPressed != null,
   _ => false,
 };
 

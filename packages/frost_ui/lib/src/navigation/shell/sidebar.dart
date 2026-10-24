@@ -10,7 +10,7 @@ class _SidebarNavigation extends StatelessWidget {
     required this.itemForm,
     required this.progress,
     required this.controls,
-    this.backControl,
+    this.header,
 
     required this.onDestinationSelected,
     required this.onSecondarySelected,
@@ -25,7 +25,7 @@ class _SidebarNavigation extends StatelessWidget {
   final FrostNavItemForm itemForm;
   final double progress;
   final Widget controls;
-  final Widget? backControl;
+  final Widget? header;
 
   final ValueChanged<int> onDestinationSelected;
   final ValueChanged<int> onSecondarySelected;
@@ -145,11 +145,7 @@ class _SidebarNavigation extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: FrostGap.related),
           child: Column(
             children: [
-              if (backControl != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: _innerPadding),
-                  child: backControl,
-                ),
+              ?header,
               const SizedBox(height: FrostGap.inline),
               Expanded(
                 child: _EdgeFadeScrollView(
@@ -269,21 +265,8 @@ class FrostNavItem extends StatelessWidget {
     this.progress = 0,
     this.labelOpacity = 1,
     super.key,
-  }) : _showsLabel = true;
+  });
 
-  const FrostNavItem._back({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-    required this.progress,
-    required this.form,
-    required this.indicatorInset,
-    super.key,
-  }) : selected = false,
-       labelOpacity = 0,
-       _showsLabel = false;
-
-  final bool _showsLabel;
   final String label;
   final FrostIconData icon;
   final bool selected;
@@ -312,7 +295,6 @@ class FrostNavItem extends StatelessWidget {
         onTap: onTap,
         progress: progress,
         labelOpacity: labelOpacity,
-        showsLabel: _showsLabel,
         iconAxis: _SidebarIconAxis.maybeOf(context) ?? 24,
         physicalIconAxis: _SidebarIconAxis.maybeOf(context) != null,
         expandedLayoutWidth: _SidebarIconAxis.itemWidthOf(context),
@@ -348,8 +330,7 @@ class FrostNavItem extends StatelessWidget {
 
     final item = Semantics(
       button: true,
-      selected: _showsLabel ? selected : null,
-      enabled: _showsLabel ? null : onTap != null,
+      selected: selected,
       label: FrostDestinationStatus.labelOf(context, label),
       excludeSemantics: true,
       child: Stack(
@@ -388,7 +369,7 @@ class FrostNavItem extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (_showsLabel && amount > 0)
+                        if (amount > 0)
                           PositionedDirectional(
                             start: physicalRtl ? 8 : labelStart,
                             end: physicalRtl ? labelStart : 8,
@@ -447,7 +428,7 @@ class FrostNavItem extends StatelessWidget {
     // Collapsed, the label is only in the tooltip. The tooltip stays in the
     // tree either way so the hover state survives the expansion.
     return TooltipVisibility(
-      visible: !_showsLabel || amount < .5,
+      visible: amount < .5,
       child: FrostTooltip(message: label, excludeFromSemantics: true, child: item),
     );
   }
@@ -479,18 +460,4 @@ class _SidebarIconAxis extends InheritedWidget {
   static double? itemWidthOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<_SidebarIconAxis>()?.itemWidth;
   @override
   bool updateShouldNotify(_SidebarIconAxis oldWidget) => value != oldWidget.value || itemWidth != oldWidget.itemWidth;
-}
-
-// A distinct internal widget preserves the public destination item type for
-// callers that inspect their navigation targets; rendering remains shared.
-class _SidebarBack extends FrostNavItem {
-  const _SidebarBack({
-    required super.label,
-    required super.icon,
-    required super.onTap,
-    required super.progress,
-    required super.form,
-    required super.indicatorInset,
-    super.key,
-  }) : super._back();
 }

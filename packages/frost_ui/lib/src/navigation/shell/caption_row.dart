@@ -2,6 +2,7 @@ part of 'shell.dart';
 
 // A shared title-row height aligns navigation with or without native actions.
 const _shellCaptionHeight = 40.0;
+const _nativeCaptionHeight = 28.0;
 
 class _CaptionRow extends StatelessWidget {
   const _CaptionRow({required this.iconAxis, required this.nativeCaption, required this.showsBack, required this.onBack, this.brand});
@@ -14,6 +15,16 @@ class _CaptionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget drag(Widget child) => nativeCaption ? FrostCaptionRegion(kind: FrostHitKind.caption, child: child) : child;
     final state = FrostWindowCaptionScope.stateOf(context);
+    if (state?.mode == FrostCaptionMode.nativeControls) {
+      // AppKit excludes its own buttons from native dragging. The remaining
+      // strip is a single drag region, including empty space around the buttons.
+      return Row(
+        children: [
+          Expanded(child: drag(const SizedBox.expand())),
+          if (state!.failed) const FrostCaptionButtons(),
+        ],
+      );
+    }
     return FrostNativeCaptionPadding(
       child: Row(
         textDirection: TextDirection.ltr,
@@ -28,8 +39,73 @@ class _CaptionRow extends StatelessWidget {
               ),
             ),
           ),
-          if (nativeCaption && (state?.rightButtons.isNotEmpty ?? true)) const FrostCaptionButtons(),
+          if (nativeCaption && ((state?.failed ?? false) || (state?.rightButtons.isNotEmpty ?? true))) const FrostCaptionButtons(),
         ],
+      ),
+    );
+  }
+}
+
+// Kept outside the destinations' scroll view and the page subtree. A fixed
+// expanded brand layout is clipped/revealed by the existing sidebar animation;
+// neither the Back target nor text reflows during expansion.
+class _SidebarHeader extends StatelessWidget {
+  const _SidebarHeader({required this.metrics, required this.progress, required this.onBack, this.brand});
+  final FrostNavigationMetrics metrics;
+  final double progress;
+  final VoidCallback? onBack;
+  final Widget? brand;
+
+  @override
+  Widget build(BuildContext context) {
+    final amount = progress.clamp(0.0, 1.0);
+    final height = frostControlTextGeometry(
+      baseHeight: math.max(_shellCaptionHeight, FrostDensity.of(context).controlHeight),
+      style: FrostTypography.of(context).style(FrostTextRole.callout),
+      textScaler: MediaQuery.textScalerOf(context),
+    ).height;
+    return SizedBox(
+      height: height,
+      child: ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.centerLeft,
+          minWidth: metrics.expandedWidth,
+          maxWidth: metrics.expandedWidth,
+          child: Row(
+            textDirection: TextDirection.ltr,
+            children: [
+              SizedBox(
+                width: metrics.railWidth,
+                child: Center(
+                  child: FrostButton.icon(
+                    key: const ValueKey('frost-shell-back'),
+                    label: FrostScope.labelsOf(context).back,
+                    icon: FrostIconSet.of(context).back,
+                    onPressed: onBack,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: FrostGap.related),
+                  child: ExcludeSemantics(
+                    excluding: amount < .5,
+                    child: ExcludeFocus(
+                      excluding: amount < 1,
+                      child: IgnorePointer(
+                        ignoring: amount < 1,
+                        child: Opacity(
+                          opacity: amount,
+                          child: Align(alignment: AlignmentDirectional.centerStart, child: brand),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
