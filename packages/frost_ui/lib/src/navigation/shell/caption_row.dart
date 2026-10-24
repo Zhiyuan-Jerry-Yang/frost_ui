@@ -13,20 +13,24 @@ class _CaptionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget drag(Widget child) => nativeCaption ? FrostCaptionRegion(kind: FrostHitKind.caption, child: child) : child;
-    return Row(
-      textDirection: TextDirection.ltr,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (showsBack) _ShellCaptionBack(width: iconAxis * 2, onBack: onBack),
-        Expanded(
-          child: drag(
-            ClipRect(
-              child: Align(alignment: AlignmentDirectional.centerStart, child: brand),
+    final state = FrostWindowCaptionScope.stateOf(context);
+    return FrostNativeCaptionPadding(
+      child: Row(
+        textDirection: TextDirection.ltr,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (nativeCaption && (state?.leftButtons.isNotEmpty ?? false)) const FrostCaptionButtons(side: FrostCaptionSide.left),
+          if (showsBack) _ShellCaptionBack(width: iconAxis * 2, onBack: onBack),
+          Expanded(
+            child: drag(
+              ClipRect(
+                child: Align(alignment: AlignmentDirectional.centerStart, child: brand),
+              ),
             ),
           ),
-        ),
-        if (nativeCaption) const FrostCaptionButtons(),
-      ],
+          if (nativeCaption && (state?.rightButtons.isNotEmpty ?? true)) const FrostCaptionButtons(),
+        ],
+      ),
     );
   }
 }

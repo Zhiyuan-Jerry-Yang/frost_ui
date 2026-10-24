@@ -1,7 +1,8 @@
 import 'dart:ui' show FlutterView;
-import 'package:flutter/widgets.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/widgets.dart';
 
 /// Native window actions and layout-time caption hit-region collection.
 class FrostWindowCaptionScope extends StatefulWidget {
@@ -21,6 +22,8 @@ class FrostWindowCaptionScope extends StatefulWidget {
 
   static bool systemBackdropActiveOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<_CaptionScope>()?.owner.systemBackdropActive ?? false;
 
+  static FrostCaptionState? stateOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<_CaptionScope>()?.state;
+
   static FrostWindowActions? windowOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<_CaptionScope>()?.owner.window;
 
   @override
@@ -28,13 +31,15 @@ class FrostWindowCaptionScope extends StatefulWidget {
 }
 
 class _CaptionScope extends InheritedWidget {
-  const _CaptionScope({required this.owner, required this.collector, required super.child});
+  const _CaptionScope({required this.owner, required this.collector, required this.state, required super.child});
   final FrostWindowCaptionScope owner;
   final _CaptionScopeState collector;
+  final FrostCaptionState? state;
 
   @override
   bool updateShouldNotify(_CaptionScope oldWidget) =>
       owner.window != oldWidget.owner.window ||
+      state != oldWidget.state ||
       owner.systemBackdropActive != oldWidget.owner.systemBackdropActive ||
       owner.systemBackdropAvailable != oldWidget.owner.systemBackdropAvailable;
 }
@@ -54,14 +59,36 @@ class FrostHitRegion {
   int get hashCode => Object.hash(rect, kind);
 }
 
+/// The actual decoration mode negotiated with the native window host.
+enum FrostCaptionMode { system, client, nativeControls }
+
+enum FrostCaptionAction { minimize, maximize, close }
+
+enum FrostCaptionSide { left, right }
+
 @immutable
 class FrostCaptionState {
-  const FrostCaptionState({required this.maximized, required this.active, required this.maximizeHovered, required this.maximizePressed, required this.failed});
+  const FrostCaptionState({
+    required this.maximized,
+    required this.active,
+    required this.maximizeHovered,
+    required this.maximizePressed,
+    required this.failed,
+    this.mode = FrostCaptionMode.client,
+    this.leftButtons = const [],
+    this.rightButtons = const [FrostCaptionAction.minimize, FrostCaptionAction.maximize, FrostCaptionAction.close],
+    this.nativeControls = Rect.zero,
+  });
   final bool maximized;
   final bool active;
   final bool maximizeHovered;
   final bool maximizePressed;
   final bool failed;
+  final FrostCaptionMode mode;
+  final List<FrostCaptionAction> leftButtons, rightButtons;
+
+  /// Native button bounds in Flutter-view logical coordinates, not OS pixels.
+  final Rect nativeControls;
 }
 
 abstract interface class FrostWindowActions implements Listenable {
@@ -122,11 +149,15 @@ class _CaptionScopeState extends State<FrostWindowCaptionScope> {
   }
 
   @override
-  Widget build(BuildContext context) => _CaptionScope(
-    owner: widget,
-    collector: this,
-    child: widget.window == null ? widget.child : _CaptionLayout(onChanged: _queueSync, child: widget.child),
-  );
+  Widget build(BuildContext context) {
+    Widget scope() => _CaptionScope(
+      owner: widget,
+      collector: this,
+      state: widget.window?.captionState,
+      child: widget.window == null ? widget.child : _CaptionLayout(onChanged: _queueSync, child: widget.child),
+    );
+    return widget.window == null ? scope() : ListenableBuilder(listenable: widget.window!, builder: (context, _) => scope());
+  }
 }
 
 /// Marks only the native caption or maximize area; it adds no pointer handler.

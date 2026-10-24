@@ -1,45 +1,47 @@
-import '../../feedback/_skeleton_geometry.dart';
-import '../../primitives/_page_outline.dart';
-import '../../surface/_window_background.dart';
-import 'package:frost_ui/src/foundation/mask.dart';
-import 'package:frost_ui/src/foundation/spacing.dart';
-import 'package:frost_ui/src/foundation/typography.dart';
-import 'package:frost_ui/src/foundation/radius.dart';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
-import '../../controls/buttons.dart';
+import 'package:flutter/services.dart';
+
 import '../../controls/_button_control.dart';
+import '../../controls/buttons.dart';
 import '../../controls/picker_option.dart';
+import '../../feedback/_skeleton_geometry.dart';
+import '../../foundation/density.dart';
+import '../../foundation/icon_data.dart';
+import '../../foundation/mask.dart';
+import '../../foundation/metrics.dart';
+import '../../foundation/radius.dart';
+import '../../foundation/scope.dart';
+import '../../foundation/spacing.dart';
+import '../../foundation/tokens.dart';
+import '../../foundation/typography.dart';
+import '../../layout/auto_scaffold.dart';
+import '../../layout/content_viewport.dart';
+import '../../layout/window_caption_scope.dart';
+import '../../motion/_selection_feedback.dart';
+import '../../motion/layout_crossfade.dart';
 import '../../overlays/_value_picker.dart';
 import '../../overlays/tooltip.dart';
+import '../../primitives/_page_outline.dart';
+import '../../primitives/click_surface.dart';
+import '../../primitives/divider.dart';
+import '../../primitives/icon.dart' show FrostIcon;
+import '../../primitives/surface.dart';
+import '../../surface/_window_background.dart';
+import '../_destination_status.dart';
 import '../_navigation_tile.dart';
 import '../_shell_back_scope.dart';
-import '../_destination_status.dart';
-import 'package:flutter/services.dart';
-import 'package:frost_ui/src/primitives/click_surface.dart';
-import 'package:frost_ui/src/primitives/icon.dart';
-import '../../primitives/divider.dart';
-import 'package:frost_ui/src/foundation/density.dart';
-import 'package:frost_ui/src/foundation/metrics.dart';
-import 'package:frost_ui/src/foundation/scope.dart';
-import 'package:frost_ui/src/foundation/tokens.dart';
-import 'package:frost_ui/src/layout/auto_scaffold.dart';
-import 'package:frost_ui/src/layout/content_viewport.dart';
-import 'package:frost_ui/src/layout/window_caption_scope.dart';
-import 'package:frost_ui/src/motion/layout_crossfade.dart';
-import 'package:frost_ui/src/motion/_selection_feedback.dart';
-import 'package:frost_ui/src/navigation/shell_navigation_scope.dart';
-import 'package:frost_ui/src/navigation/window_caption.dart';
-import 'package:frost_ui/src/primitives/surface.dart';
+import '../shell_navigation_scope.dart';
+import '../window_caption.dart';
 
 part 'base_layer.dart';
-part 'sidebar.dart';
-part 'mobile_bar.dart';
-part 'destination.dart';
 part 'caption_row.dart';
 part 'content_sheet.dart';
+part 'destination.dart';
+part 'mobile_bar.dart';
+part 'sidebar.dart';
 
 /// One navigation destination: an icon and its caller-owned label.
 @immutable
@@ -300,6 +302,8 @@ class _FrostShellState extends State<FrostShell> with SingleTickerProviderStateM
         final canExpand = besidePage || (useHorizontalLayout && style.expandsOverContent);
         final showSidebar = useHorizontalLayout;
         final hasCaption = FrostWindowCaptionScope.windowOf(context) != null;
+        final nativeControls = FrostWindowCaptionScope.stateOf(context)?.nativeControls ?? Rect.zero;
+        final captionHeight = math.max(_shellCaptionHeight, nativeControls.isEmpty ? 0.0 : nativeControls.bottom + FrostGap.related);
         return _FrostDestinationNavigation(
           enabled: !useHorizontalLayout && widget.showsMobileNavigation,
           navigation: _MobileNavBar(destinations: widget.destinations, selectedIndex: widget.selectedIndex ?? 0, onDestinationSelected: _selectIndex),
@@ -349,8 +353,7 @@ class _FrostShellState extends State<FrostShell> with SingleTickerProviderStateM
                             // A system-owned title bar is followed by a real shell
                             // navigation row, rather than an empty caption spacer.
                             final sidebarTop =
-                                (hasCaption ? _shellCaptionHeight : 0.0) +
-                                math.max(frame.top, !hasCaption && style is _FrostInsetSidebar ? FrostGap.related : 0.0);
+                                (hasCaption ? captionHeight : 0.0) + math.max(frame.top, !hasCaption && style is _FrostInsetSidebar ? FrostGap.related : 0.0);
                             // Only positioned layers: the Stack must take the body size.
                             return Stack(
                               fit: StackFit.expand,
@@ -361,7 +364,7 @@ class _FrostShellState extends State<FrostShell> with SingleTickerProviderStateM
                                 Positioned.fill(
                                   left: showSidebar ? frame.left + pageRail + style.gutter : 0,
                                   top: hasCaption
-                                      ? _shellCaptionHeight
+                                      ? captionHeight
                                       : showSidebar
                                       ? sidebarTop
                                       : 0,
@@ -371,13 +374,15 @@ class _FrostShellState extends State<FrostShell> with SingleTickerProviderStateM
                                     context: context,
                                     removeLeft: showSidebar,
                                     removeTop: showSidebar,
-                                    child: _ContentSheet(
-                                      enabled: showSidebar,
-                                      radius: FrostRadius.borderRadius(FrostRadius.lg),
-                                      child: FrostContentViewport(
-                                        key: _pageKey,
-                                        navigationReserve: besidePage ? metrics.expandedWidth - railWidth : 0,
-                                        child: widget.child,
+                                    child: FrostCaptionClearance(
+                                      child: _ContentSheet(
+                                        enabled: showSidebar,
+                                        radius: FrostRadius.borderRadius(FrostRadius.lg),
+                                        child: FrostContentViewport(
+                                          key: _pageKey,
+                                          navigationReserve: besidePage ? metrics.expandedWidth - railWidth : 0,
+                                          child: widget.child,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -438,7 +443,7 @@ class _FrostShellState extends State<FrostShell> with SingleTickerProviderStateM
                                     left: 0,
                                     right: 0,
                                     top: 0,
-                                    height: _shellCaptionHeight,
+                                    height: captionHeight,
                                     child: _CaptionRow(
                                       iconAxis: frame.left + metrics.railWidth / 2,
                                       nativeCaption: hasCaption,

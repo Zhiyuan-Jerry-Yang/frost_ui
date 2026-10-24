@@ -42,6 +42,105 @@ Widget buttons() => const Align(
 );
 
 void main() {
+  testWidgets('native control geometry reserves one top row and never duplicates native buttons', (tester) async {
+    final window = FakeWindow();
+    window.current = const FrostCaptionState(
+      maximized: false,
+      active: true,
+      maximizeHovered: false,
+      maximizePressed: false,
+      failed: false,
+      mode: FrostCaptionMode.nativeControls,
+      leftButtons: [],
+      rightButtons: [],
+      nativeControls: Rect.fromLTRB(12, 12, 72, 32),
+    );
+    const target = SizedBox(key: ValueKey('native-safe-content'), width: 100, height: 40);
+    await tester.pumpWidget(
+      host(
+        window,
+        const Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 500,
+            height: 40,
+            child: FrostNativeCaptionPadding(child: FrostNativeCaptionPadding(child: target)),
+          ),
+        ),
+      ),
+    );
+    expect(tester.getTopLeft(find.byKey(const ValueKey('native-safe-content'))).dx, 80);
+    await tester.pumpWidget(
+      host(
+        window,
+        const Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(height: 40, child: FrostCaptionButtons()),
+        ),
+      ),
+    );
+    expect(find.byType(IconButton), findsNothing);
+    window.current = const FrostCaptionState(
+      maximized: false,
+      active: true,
+      maximizeHovered: false,
+      maximizePressed: false,
+      failed: false,
+      mode: FrostCaptionMode.nativeControls,
+      leftButtons: [],
+      rightButtons: [],
+    );
+    window.notifyListeners();
+    await tester.pumpWidget(
+      host(
+        window,
+        const Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(width: 500, height: 40, child: FrostNativeCaptionPadding(child: target)),
+        ),
+      ),
+    );
+    expect(tester.getTopLeft(find.byKey(const ValueKey('native-safe-content'))).dx, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('client decoration uses reported left/right button lists and order', (tester) async {
+    final window = FakeWindow();
+    window.current = const FrostCaptionState(
+      maximized: false,
+      active: true,
+      maximizeHovered: false,
+      maximizePressed: false,
+      failed: false,
+      leftButtons: [FrostCaptionAction.close],
+      rightButtons: [FrostCaptionAction.minimize, FrostCaptionAction.maximize],
+    );
+    await tester.pumpWidget(
+      host(
+        window,
+        const Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 500,
+            height: 40,
+            child: Row(
+              children: [
+                FrostCaptionButtons(side: FrostCaptionSide.left),
+                Spacer(),
+                FrostCaptionButtons(),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(tester.getCenter(find.byTooltip('L.close')).dx, lessThan(tester.getCenter(find.byTooltip('L.minimize')).dx));
+    expect(tester.getCenter(find.byTooltip('L.minimize')).dx, lessThan(tester.getCenter(find.byTooltip('L.maximize')).dx));
+    await tester.tap(find.byTooltip('L.close'));
+    expect(window.operations, ['close']);
+    expect(tester.takeException(), isNull);
+  });
+
   test('hit region value equality includes rect and kind', () {
     const a = FrostHitRegion(rect: Rect.fromLTWH(10, 20, 30, 40), kind: FrostHitKind.caption);
     const b = FrostHitRegion(rect: Rect.fromLTWH(10, 20, 30, 40), kind: FrostHitKind.caption);

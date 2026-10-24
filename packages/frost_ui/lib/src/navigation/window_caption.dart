@@ -1,12 +1,15 @@
-import '../primitives/_on_media_chrome_scope.dart';
 import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:frost_ui/src/foundation/feedback.dart';
-import 'package:frost_ui/src/foundation/metrics.dart';
-import 'package:frost_ui/src/foundation/scope.dart';
-import 'package:frost_ui/src/foundation/tokens.dart';
-import 'package:frost_ui/src/layout/window_caption_scope.dart';
-import 'package:frost_ui/src/primitives/caption_glyph.dart';
+
+import '../foundation/feedback.dart';
+import '../foundation/metrics.dart';
+import '../foundation/scope.dart';
+import '../foundation/spacing.dart';
+import '../foundation/tokens.dart';
+import '../layout/window_caption_scope.dart';
+import '../primitives/_on_media_chrome_scope.dart';
+import '../primitives/caption_glyph.dart';
 
 abstract final class FrostCaptionMetrics {
   /// Windows caption controls keep the platform's 46 logical-pixel width.
@@ -18,7 +21,8 @@ abstract final class FrostCaptionMetrics {
 
 /// Platform caption controls, stretched to their title row's height.
 class FrostCaptionButtons extends StatelessWidget {
-  const FrostCaptionButtons({super.key});
+  const FrostCaptionButtons({this.side = FrostCaptionSide.right, super.key});
+  final FrostCaptionSide side;
 
   @override
   Widget build(BuildContext context) {
@@ -33,18 +37,30 @@ class FrostCaptionButtons extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (state.failed) _CaptionButton(label: labels.retry, kind: FrostCaptionGlyphKind.retry, state: state, onPressed: window.retry),
-            _CaptionButton(label: labels.minimize, kind: FrostCaptionGlyphKind.minimize, state: state, onPressed: window.minimize),
-            FrostCaptionRegion(
-              kind: FrostHitKind.maximize,
-              child: _CaptionButton(
-                label: state.maximized ? labels.restore : labels.maximize,
-                kind: state.maximized ? FrostCaptionGlyphKind.restore : FrostCaptionGlyphKind.maximize,
-                state: state,
-                onPressed: window.toggleMaximized,
-              ),
-            ),
-            _CaptionButton(label: labels.close, kind: FrostCaptionGlyphKind.close, state: state, onPressed: window.close),
+            if (state.failed && side == FrostCaptionSide.right)
+              _CaptionButton(label: labels.retry, kind: FrostCaptionGlyphKind.retry, state: state, onPressed: window.retry),
+            for (final action
+                in state.mode == FrostCaptionMode.nativeControls
+                    ? <FrostCaptionAction>[]
+                    : (side == FrostCaptionSide.left ? state.leftButtons : state.rightButtons))
+              switch (action) {
+                FrostCaptionAction.minimize => _CaptionButton(
+                  label: labels.minimize,
+                  kind: FrostCaptionGlyphKind.minimize,
+                  state: state,
+                  onPressed: window.minimize,
+                ),
+                FrostCaptionAction.maximize => FrostCaptionRegion(
+                  kind: FrostHitKind.maximize,
+                  child: _CaptionButton(
+                    label: state.maximized ? labels.restore : labels.maximize,
+                    kind: state.maximized ? FrostCaptionGlyphKind.restore : FrostCaptionGlyphKind.maximize,
+                    state: state,
+                    onPressed: window.toggleMaximized,
+                  ),
+                ),
+                FrostCaptionAction.close => _CaptionButton(label: labels.close, kind: FrostCaptionGlyphKind.close, state: state, onPressed: window.close),
+              },
           ],
         );
       },
@@ -102,6 +118,35 @@ class _CaptionButton extends StatelessWidget {
             if (danger) return pressed ? FrostCaptionColors.closePressed : FrostCaptionColors.closeHover;
             return mediaInk == null ? (pressed ? tokens.fillStrong : tokens.fillSubtle) : mediaInk.withValues(alpha: pressed ? .12 : .08);
           }),
+        ),
+      ),
+    );
+  }
+}
+
+/// Marks content whose owner has already placed it below the caption row.
+class FrostCaptionClearance extends InheritedWidget {
+  const FrostCaptionClearance({required super.child, super.key});
+  static bool of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<FrostCaptionClearance>() != null;
+  @override
+  bool updateShouldNotify(FrostCaptionClearance oldWidget) => false;
+}
+
+/// Keeps top-of-window controls clear of measured native window buttons.
+/// Apply at the full-width header boundary, before ordinary content gutters.
+class FrostNativeCaptionPadding extends StatelessWidget {
+  const FrostNativeCaptionPadding({required this.child, super.key});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) {
+    final rect = FrostWindowCaptionScope.stateOf(context)?.nativeControls ?? Rect.zero;
+    if (FrostCaptionClearance.of(context) || rect.isEmpty) return child;
+    return FrostCaptionClearance(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: rect.bottom + FrostGap.related),
+        child: Padding(
+          padding: EdgeInsets.only(left: rect.right + FrostGap.related),
+          child: child,
         ),
       ),
     );

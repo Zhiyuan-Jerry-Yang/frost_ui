@@ -1,5 +1,6 @@
-import '../primitives/_page_outline.dart';
 import 'package:flutter/material.dart';
+
+import '../foundation/icon_data.dart';
 import '../foundation/metrics.dart';
 import '../foundation/scope.dart';
 import '../foundation/spacing.dart';
@@ -7,13 +8,14 @@ import '../foundation/tokens.dart';
 import '../foundation/typography.dart';
 import '../layout/auto_scaffold.dart';
 import '../layout/content_viewport.dart';
-import '../primitives/icon.dart';
+import '../primitives/_page_outline.dart';
 import '../primitives/keyline.dart';
 import '../primitives/text.dart';
+import '_page_header_leading.dart';
 import 'shell_navigation_scope.dart';
 import 'toolbar.dart';
-import '_page_header_leading.dart';
 import 'toolbar_menu_button.dart';
+import 'window_caption.dart';
 
 /// Page-owned navigation, title and actions in one adaptive toolbar row.
 class FrostPageHeader extends StatelessWidget {
@@ -107,13 +109,15 @@ class FrostPageHeader extends StatelessWidget {
         ),
       );
     }
-    return DefaultTextStyle(
-      style: FrostTypography.of(context).style(FrostTextRole.headline).copyWith(color: FrostThemeTokens.of(context).textPrimary),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(minHeight: scales ? height + extraLine : height, maxHeight: scales ? double.infinity : height),
-        child: row,
+    return FrostNativeCaptionPadding(
+      child: DefaultTextStyle(
+        style: FrostTypography.of(context).style(FrostTextRole.headline).copyWith(color: FrostThemeTokens.of(context).textPrimary),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: scales ? height + extraLine : height, maxHeight: scales ? double.infinity : height),
+          child: row,
+        ),
       ),
     );
   }
