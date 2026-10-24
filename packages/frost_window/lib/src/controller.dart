@@ -41,9 +41,11 @@ class FrostWindowState {
     this.leftButtons = const [],
     this.rightButtons = const [FrostCaptionAction.minimize, FrostCaptionAction.maximize, FrostCaptionAction.close],
     this.nativeControls = Rect.zero,
+    this.captionStyle = FrostCaptionStyle.windows,
+    this.captionIcons = const {},
   });
 
-  factory FrostWindowState.fromMap(Map<Object?, Object?> value) => FrostWindowState(
+  factory FrostWindowState.fromMap(Map<Object?, Object?> value, {FrostWindowState? previous}) => FrostWindowState(
     captionMode: switch (value['captionMode']) {
       'nativeControls' => FrostCaptionMode.nativeControls,
       'system' => FrostCaptionMode.system,
@@ -53,6 +55,13 @@ class FrostWindowState {
     leftButtons: _buttons(value['leftButtons'], const []),
     rightButtons: _buttons(value['rightButtons'], const [FrostCaptionAction.minimize, FrostCaptionAction.maximize, FrostCaptionAction.close]),
     nativeControls: _nativeRect(value['nativeControls']),
+    captionStyle: switch (value['captionStyle']) {
+      'adwaita' => FrostCaptionStyle.adwaita,
+      'breeze' => FrostCaptionStyle.breeze,
+      null || 'windows' => FrostCaptionStyle.windows,
+      _ => throw const FormatException('Invalid native caption style'),
+    },
+    captionIcons: _icons(value['captionIcons'], previous?.captionIcons),
     maximized: value['maximized'] == true,
     active: value['active'] != false,
     minimized: value['minimized'] == true,
@@ -65,6 +74,23 @@ class FrostWindowState {
   );
 
   final FrostCaptionMode captionMode;
+  final FrostCaptionStyle captionStyle;
+  final Map<FrostCaptionIcon, Uint8List> captionIcons;
+
+  static Map<FrostCaptionIcon, Uint8List> _icons(Object? value, Map<FrostCaptionIcon, Uint8List>? previous) {
+    if (value == null) return const {};
+    final icons = <FrostCaptionIcon, Uint8List>{};
+    for (final entry in (value as Map).entries) {
+      final kind = FrostCaptionIcon.values.byName(entry.key as String);
+      final bytes = entry.value as Uint8List;
+      if (bytes.isEmpty) throw const FormatException('Empty native caption icon');
+      // Focus/resize notifications must not invalidate decoded Flutter images.
+      final old = previous?[kind];
+      icons[kind] = old != null && listEquals(old, bytes) ? old : bytes;
+    }
+    return Map.unmodifiable(icons);
+  }
+
   final List<FrostCaptionAction> leftButtons, rightButtons;
   final Rect nativeControls;
 
@@ -121,7 +147,9 @@ class FrostWindowController extends ChangeNotifier implements ValueListenable<Fr
   final Completer<void> _registration = Completer<void>();
   final _backRequests = ChangeNotifier();
   Future<void> _diagnosticTask = Future.value();
-  FrostWindowState _state = const FrostWindowState();
+  // Wait for the host's actual mode before drawing client controls. In
+  // particular, macOS already owns its native buttons on the first frame.
+  FrostWindowState _state = const FrostWindowState(captionMode: FrostCaptionMode.system);
   Future<void>? _initializing;
   bool _initialized = false;
   bool _failed = false;
@@ -195,7 +223,7 @@ class FrostWindowController extends ChangeNotifier implements ValueListenable<Fr
   }
 
   void _acceptState(Map<Object?, Object?> value) {
-    final next = FrostWindowState.fromMap(value);
+    final next = FrostWindowState.fromMap(value, previous: _state);
     // A reply to the startup query can arrive after a newer native event.
     if (next.revision < _state.revision || _disposed) return;
     _state = next;

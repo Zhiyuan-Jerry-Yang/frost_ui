@@ -1,5 +1,7 @@
 #include "include/frost_window/frost_window_plugin.h"
 
+#include "caption_appearance.h"
+
 #include <cmath>
 #include <cstring>
 
@@ -13,6 +15,8 @@ struct _FrostWindowPlugin {
   FlView* view;
   GtkWindow* window;
   GtkSettings* settings;
+  GtkIconTheme* icon_theme;
+  FlValue* caption_icons;
   GtkGesture* press;
   GtkEventController* motion;
   GArray* regions;
@@ -35,11 +39,12 @@ static bool fullscreen(FrostWindowPlugin* self) {
   return native != nullptr && (gdk_window_get_state(native) & GDK_WINDOW_STATE_FULLSCREEN) != 0;
 }
 
-static FlValue* buttons(const gchar* layout, bool resizable) {
+static FlValue* buttons(const gchar* layout, bool resizable, bool closable) {
   FlValue* result = fl_value_new_list();
   g_auto(GStrv) names = g_strsplit(layout == nullptr ? "" : layout, ",", -1);
   for (gchar** name = names; *name != nullptr; ++name) {
-    if (strcmp(*name, "close") == 0 || strcmp(*name, "minimize") == 0 ||
+    g_strstrip(*name);
+    if ((closable && strcmp(*name, "close") == 0) || strcmp(*name, "minimize") == 0 ||
         (resizable && strcmp(*name, "maximize") == 0)) {
       fl_value_append_take(result, fl_value_new_string(*name));
     }
@@ -53,9 +58,15 @@ static FlValue* state(FrostWindowPlugin* self) {
   g_object_get(self->settings, "gtk-decoration-layout", &layout, nullptr);
   g_auto(GStrv) sides = g_strsplit(layout == nullptr ? ":minimize,maximize,close" : layout, ":", 2);
   const bool resizable = gtk_window_get_resizable(self->window);
+  const bool closable = gtk_window_get_deletable(self->window);
+  if (self->caption_icons == nullptr) {
+    self->caption_icons = frost::caption_icons(self->icon_theme, gtk_widget_get_scale_factor(GTK_WIDGET(self->view)));
+  }
+  fl_value_set_string_take(result, "captionStyle", fl_value_new_string(frost::caption_style(self->settings)));
+  fl_value_set_string(result, "captionIcons", self->caption_icons);
   fl_value_set_string_take(result, "captionMode", fl_value_new_string("client"));
-  fl_value_set_string_take(result, "leftButtons", buttons(sides[0], resizable));
-  fl_value_set_string_take(result, "rightButtons", buttons(sides[0] == nullptr ? nullptr : sides[1], resizable));
+  fl_value_set_string_take(result, "leftButtons", fullscreen(self) ? fl_value_new_list() : buttons(sides[0], resizable, closable));
+  fl_value_set_string_take(result, "rightButtons", fullscreen(self) ? fl_value_new_list() : buttons(sides[0] == nullptr ? nullptr : sides[1], resizable, closable));
   fl_value_set_string_take(result, "maximized", fl_value_new_bool(gtk_window_is_maximized(self->window)));
   fl_value_set_string_take(result, "active", fl_value_new_bool(gtk_window_is_active(self->window)));
   auto* native = gtk_widget_get_window(GTK_WIDGET(self->window));
@@ -156,6 +167,15 @@ static void motion(GtkEventControllerMotion*, gdouble x, gdouble y, FrostWindowP
 static gboolean window_state(GtkWidget*, GdkEventWindowState*, FrostWindowPlugin* self) { publish(self); return FALSE; }
 static void changed(GObject*, GParamSpec*, FrostWindowPlugin* self) { publish(self); }
 
+static void icons_changed(GtkIconTheme*, FrostWindowPlugin* self) {
+  g_clear_pointer(&self->caption_icons, fl_value_unref);
+  publish(self);
+}
+
+static void appearance_changed(GObject*, GParamSpec*, FrostWindowPlugin* self) {
+  icons_changed(nullptr, self);
+}
+
 static void attach(FrostWindowPlugin* self) {
   if (self->window != nullptr) return;
   GtkWidget* top = gtk_widget_get_toplevel(GTK_WIDGET(self->view));
@@ -167,6 +187,8 @@ static void attach(FrostWindowPlugin* self) {
   gtk_window_set_decorated(self->window, FALSE);
   g_signal_connect_object(top, "window-state-event", G_CALLBACK(window_state), self, G_CONNECT_DEFAULT);
   g_signal_connect_object(top, "notify::is-active", G_CALLBACK(changed), self, G_CONNECT_DEFAULT);
+  g_signal_connect_object(top, "notify::resizable", G_CALLBACK(changed), self, G_CONNECT_DEFAULT);
+  g_signal_connect_object(top, "notify::deletable", G_CALLBACK(changed), self, G_CONNECT_DEFAULT);
   publish(self);
 }
 
@@ -237,6 +259,7 @@ static void frost_window_plugin_dispose(GObject* object) {
   auto* self = FROST_WINDOW_PLUGIN(object);
   if (self->channel != nullptr) g_object_remove_weak_pointer(G_OBJECT(self->channel), reinterpret_cast<gpointer*>(&self->channel));
   if (self->window != nullptr) g_object_remove_weak_pointer(G_OBJECT(self->window), reinterpret_cast<gpointer*>(&self->window));
+  g_clear_pointer(&self->caption_icons, fl_value_unref);
   g_clear_object(&self->press);
   g_clear_object(&self->motion);
   g_clear_pointer(&self->regions, g_array_unref);
@@ -250,6 +273,7 @@ void frost_window_plugin_register_with_registrar(FlPluginRegistrar* registrar) {
   g_autoptr(FrostWindowPlugin) self = FROST_WINDOW_PLUGIN(g_object_new(frost_window_plugin_get_type(), nullptr));
   self->view = fl_plugin_registrar_get_view(registrar);
   self->settings = gtk_widget_get_settings(GTK_WIDGET(self->view));
+  self->icon_theme = gtk_icon_theme_get_for_screen(gtk_widget_get_screen(GTK_WIDGET(self->view)));
   g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
   g_autoptr(FlMethodChannel) channel = fl_method_channel_new(fl_plugin_registrar_get_messenger(registrar), "frost_window", FL_METHOD_CODEC(codec));
   self->channel = channel;
@@ -264,6 +288,10 @@ void frost_window_plugin_register_with_registrar(FlPluginRegistrar* registrar) {
   g_signal_connect_object(self->motion, "motion", G_CALLBACK(motion), self, G_CONNECT_DEFAULT);
   g_signal_connect_object(self->view, "hierarchy-changed", G_CALLBACK(hierarchy), self, G_CONNECT_DEFAULT);
   g_signal_connect_object(self->settings, "notify::gtk-decoration-layout", G_CALLBACK(changed), self, G_CONNECT_DEFAULT);
+  g_signal_connect_object(self->settings, "notify::gtk-theme-name", G_CALLBACK(appearance_changed), self, G_CONNECT_DEFAULT);
+  g_signal_connect_object(self->settings, "notify::gtk-icon-theme-name", G_CALLBACK(appearance_changed), self, G_CONNECT_DEFAULT);
+  g_signal_connect_object(self->icon_theme, "changed", G_CALLBACK(icons_changed), self, G_CONNECT_DEFAULT);
+  g_signal_connect_object(self->view, "notify::scale-factor", G_CALLBACK(appearance_changed), self, G_CONNECT_DEFAULT);
   attach(self);
   fl_method_channel_invoke_method(channel, "registered", nullptr, nullptr, nullptr, nullptr);
 }

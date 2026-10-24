@@ -42,6 +42,72 @@ Widget buttons() => const Align(
 );
 
 void main() {
+  testWidgets('Linux host appearance overrides Theme.platform and follows live button lists', (tester) async {
+    final window = FakeWindow();
+    FrostCaptionState state(FrostCaptionStyle style, List<FrostCaptionAction> left, List<FrostCaptionAction> right) => FrostCaptionState(
+      maximized: false,
+      active: true,
+      maximizeHovered: false,
+      maximizePressed: false,
+      failed: false,
+      style: style,
+      leftButtons: left,
+      rightButtons: right,
+    );
+    window.current = state(FrostCaptionStyle.adwaita, [], [FrostCaptionAction.close]);
+    await tester.pumpWidget(
+      host(
+        window,
+        const Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 500,
+            height: 40,
+            child: Row(
+              children: [
+                FrostCaptionButtons(side: FrostCaptionSide.left),
+                Spacer(),
+                FrostCaptionButtons(),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.byType(IconButton), findsOneWidget);
+    final close = find.byWidgetPredicate((widget) => widget is IconButton && widget.tooltip == 'L.close');
+    expect(tester.getSize(close).width, FrostCaptionMetrics.linuxButtonSize);
+    expect(tester.widget<IconButton>(close).style!.shape!.resolve({}), isA<CircleBorder>());
+    await tester.tap(close);
+    expect(window.operations, ['close']);
+    window.current = state(FrostCaptionStyle.breeze, [FrostCaptionAction.close], [FrostCaptionAction.minimize, FrostCaptionAction.maximize]);
+    window.notifyListeners();
+    await tester.pump();
+    expect(find.byType(IconButton), findsNWidgets(3));
+    expect(tester.getCenter(close).dx, lessThan(tester.getCenter(find.byTooltip('L.minimize')).dx));
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer();
+    await mouse.moveTo(tester.getCenter(close));
+    await tester.pumpAndSettle();
+    expect(materialColor(tester, close), FrostCaptionColors.closeHover);
+    await mouse.removePointer();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('system decoration mode never draws a duplicate client button row', (tester) async {
+    final window = FakeWindow();
+    window.current = const FrostCaptionState(
+      maximized: false,
+      active: true,
+      maximizeHovered: false,
+      maximizePressed: false,
+      failed: false,
+      mode: FrostCaptionMode.system,
+    );
+    await tester.pumpWidget(host(window, buttons()));
+    expect(find.byType(IconButton), findsNothing);
+  });
+
   testWidgets('native control geometry reserves one top row and never duplicates native buttons', (tester) async {
     final window = FakeWindow();
     window.current = const FrostCaptionState(

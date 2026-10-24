@@ -266,6 +266,8 @@ class _WindowActions extends ChangeNotifier implements FrostWindowActions {
     final state = controller.state;
     return FrostCaptionState(
       mode: state.captionMode,
+      style: state.captionStyle,
+      icons: state.captionIcons,
       leftButtons: state.leftButtons,
       rightButtons: state.rightButtons,
       nativeControls: state.nativeControls,

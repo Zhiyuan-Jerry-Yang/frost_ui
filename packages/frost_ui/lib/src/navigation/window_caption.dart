@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../foundation/color_math.dart';
 import '../foundation/feedback.dart';
 import '../foundation/metrics.dart';
 import '../foundation/scope.dart';
@@ -17,6 +18,10 @@ abstract final class FrostCaptionMetrics {
 
   /// The existing native caption glyph geometry in logical pixels.
   static const glyphSize = 10.0;
+
+  static const linuxButtonWidth = 36.0;
+  static const linuxButtonSize = 28.0;
+  static const linuxGlyphSize = 16.0;
 }
 
 /// Platform caption controls, stretched to their title row's height.
@@ -40,9 +45,7 @@ class FrostCaptionButtons extends StatelessWidget {
             if (state.failed && side == FrostCaptionSide.right)
               _CaptionButton(label: labels.retry, kind: FrostCaptionGlyphKind.retry, state: state, onPressed: window.retry),
             for (final action
-                in state.mode == FrostCaptionMode.nativeControls
-                    ? <FrostCaptionAction>[]
-                    : (side == FrostCaptionSide.left ? state.leftButtons : state.rightButtons))
+                in state.mode != FrostCaptionMode.client ? <FrostCaptionAction>[] : (side == FrostCaptionSide.left ? state.leftButtons : state.rightButtons))
               switch (action) {
                 FrostCaptionAction.minimize => _CaptionButton(
                   label: labels.minimize,
@@ -77,6 +80,9 @@ class _CaptionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (state.style != FrostCaptionStyle.windows) {
+      return _LinuxCaptionButton(label: label, kind: kind, state: state, onPressed: onPressed);
+    }
     final tokens = FrostThemeTokens.of(context);
     final mediaInk = FrostOnMediaChromeScope.inkOf(context);
     final danger = kind == FrostCaptionGlyphKind.close;
@@ -118,6 +124,110 @@ class _CaptionButton extends StatelessWidget {
             if (danger) return pressed ? FrostCaptionColors.closePressed : FrostCaptionColors.closeHover;
             return mediaInk == null ? (pressed ? tokens.fillStrong : tokens.fillSubtle) : mediaInk.withValues(alpha: pressed ? .12 : .08);
           }),
+        ),
+      ),
+    );
+  }
+}
+
+// Keep Linux theme integration bounded: symbolic system icons, Adwaita geometry,
+// and Breeze's hover treatment. Arbitrary GTK/KWin decoration themes cannot be
+// reproduced reliably on application-owned backgrounds (Electron's WCO tradeoff).
+class _LinuxCaptionButton extends StatelessWidget {
+  const _LinuxCaptionButton({required this.label, required this.kind, required this.state, required this.onPressed});
+  final String label;
+  final FrostCaptionGlyphKind kind;
+  final FrostCaptionState state;
+  final Future<void> Function() onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FrostThemeTokens.of(context);
+    final mediaInk = FrostOnMediaChromeScope.inkOf(context);
+    final ink = (mediaInk ?? tokens.textPrimary).withValues(alpha: state.active ? 1 : .6);
+    final breeze = state.style == FrostCaptionStyle.breeze;
+    final close = kind == FrostCaptionGlyphKind.close;
+    final icon = switch (kind) {
+      FrostCaptionGlyphKind.minimize => FrostCaptionIcon.minimize,
+      FrostCaptionGlyphKind.maximize => FrostCaptionIcon.maximize,
+      FrostCaptionGlyphKind.restore => FrostCaptionIcon.restore,
+      FrostCaptionGlyphKind.close => FrostCaptionIcon.close,
+      FrostCaptionGlyphKind.retry => null,
+    };
+    final bytes = state.icons[icon];
+    Widget fallback(Color color) => SizedBox.square(
+      dimension: FrostCaptionMetrics.linuxGlyphSize,
+      child: Center(
+        child: FrostCaptionGlyph(kind, color: color, size: FrostCaptionMetrics.linuxGlyphSize - FrostGap.inline),
+      ),
+    );
+    Color background(Set<WidgetState> states) {
+      final pressed = states.contains(WidgetState.pressed);
+      final hovered = states.contains(WidgetState.hovered);
+      if (breeze && close && (hovered || pressed)) return pressed ? FrostCaptionColors.closePressed : FrostCaptionColors.closeHover;
+      if (breeze && (hovered || pressed)) return ink;
+      if (mediaInk != null) {
+        return mediaInk.withValues(
+          alpha: pressed
+              ? .2
+              : hovered
+              ? .14
+              : close
+              ? .08
+              : 0,
+        );
+      }
+      return pressed
+          ? tokens.fillStrong
+          : hovered || close
+          ? tokens.fillSubtle
+          : Colors.transparent;
+    }
+
+    return SizedBox(
+      width: FrostCaptionMetrics.linuxButtonWidth,
+      child: Center(
+        child: IconButton(
+          tooltip: label,
+          onPressed: () => unawaited(onPressed()),
+          style: ButtonStyle(
+            fixedSize: const WidgetStatePropertyAll(Size.square(FrostCaptionMetrics.linuxButtonSize)),
+            minimumSize: const WidgetStatePropertyAll(Size.square(FrostCaptionMetrics.linuxButtonSize)),
+            maximumSize: const WidgetStatePropertyAll(Size.square(FrostCaptionMetrics.linuxButtonSize)),
+            padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: const WidgetStatePropertyAll(CircleBorder()),
+            overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+            mouseCursor: const WidgetStatePropertyAll(SystemMouseCursors.basic),
+            backgroundColor: WidgetStateProperty.resolveWith(background),
+            foregroundColor: WidgetStateProperty.resolveWith((states) {
+              if (breeze && (states.contains(WidgetState.hovered) || states.contains(WidgetState.pressed))) {
+                return close ? FrostCaptionColors.onClose : solidLabelTone(ink);
+              }
+              return ink;
+            }),
+            side: WidgetStateProperty.resolveWith(
+              (states) => BorderSide(color: frostShowsFocus(states) ? mediaInk ?? tokens.focus : Colors.transparent, width: FrostMetrics.focusBorderWidth),
+            ),
+          ),
+          icon: ExcludeSemantics(
+            child: Builder(
+              builder: (context) {
+                final color = IconTheme.of(context).color!;
+                return bytes == null
+                    ? fallback(color)
+                    : Image.memory(
+                        bytes,
+                        width: FrostCaptionMetrics.linuxGlyphSize,
+                        height: FrostCaptionMetrics.linuxGlyphSize,
+                        color: color,
+                        colorBlendMode: BlendMode.srcIn,
+                        gaplessPlayback: true,
+                        errorBuilder: (context, error, stackTrace) => fallback(color),
+                      );
+              },
+            ),
+          ),
         ),
       ),
     );

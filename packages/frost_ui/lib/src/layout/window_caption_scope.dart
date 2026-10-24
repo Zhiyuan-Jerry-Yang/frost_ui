@@ -66,6 +66,11 @@ enum FrostCaptionAction { minimize, maximize, close }
 
 enum FrostCaptionSide { left, right }
 
+/// Reported by the native host, independently of the app's Theme.platform.
+enum FrostCaptionStyle { windows, adwaita, breeze }
+
+enum FrostCaptionIcon { minimize, maximize, restore, close }
+
 @immutable
 class FrostCaptionState {
   const FrostCaptionState({
@@ -78,6 +83,8 @@ class FrostCaptionState {
     this.leftButtons = const [],
     this.rightButtons = const [FrostCaptionAction.minimize, FrostCaptionAction.maximize, FrostCaptionAction.close],
     this.nativeControls = Rect.zero,
+    this.style = FrostCaptionStyle.windows,
+    this.icons = const {},
   });
   final bool maximized;
   final bool active;
@@ -85,6 +92,11 @@ class FrostCaptionState {
   final bool maximizePressed;
   final bool failed;
   final FrostCaptionMode mode;
+  final FrostCaptionStyle style;
+
+  /// Symbolic PNG masks from the host's icon theme, at the current display scale.
+  /// Missing entries use the shared vector fallback; colors come from Frost.
+  final Map<FrostCaptionIcon, Uint8List> icons;
   final List<FrostCaptionAction> leftButtons, rightButtons;
 
   /// Native button bounds in Flutter-view logical coordinates, not OS pixels.
