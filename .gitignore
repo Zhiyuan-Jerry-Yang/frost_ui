@@ -13,3 +13,9 @@ Cargo.lock
 
 # Local path overrides for joint development; never committed.
 pubspec_overrides.yaml
+
+# Native Apple package-manager outputs.
+.build/
+.swiftpm/
+Package.resolved
+Podfile.lock

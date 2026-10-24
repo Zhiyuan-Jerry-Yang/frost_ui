@@ -31,3 +31,17 @@ Mica is Windows-only and is inactive normally on the other platforms.
 `showSystemMenu` and image clipboard transport are Windows-specific controller
 operations. Linux requests its compositor menu from the native right-click
 handler; macOS has no equivalent window menu.
+
+## macOS package managers
+
+Both Swift Package Manager and CocoaPods are supported. They compile the same
+Swift sources under `macos/frost_window/Sources/frost_window`; the CocoaPods
+specification points to that directory. The deployment minimum remains macOS 12.
+Flutter 3.47 discovers the SPM manifest automatically. Applications can still use
+CocoaPods, or mix SPM plugins with CocoaPods-only dependencies.
+
+For integration checks, build the consuming app once with SPM enabled and once
+with the project-local `flutter.config.enable-swift-package-manager: false`.
+Keep that validation setting local to the test copy instead of changing the
+machine-wide Flutter configuration. A successful mixed build does not establish
+that the app is independent of CocoaPods.

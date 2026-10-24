@@ -7,7 +7,7 @@ Pod::Spec.new do |s|
   s.license          = { :type => 'GPL-3.0', :file => '../LICENSE' }
   s.author           = { 'normalllll' => 'https://github.com/normalllll' }
   s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*'
+  s.source_files     = 'frost_window/Sources/frost_window/**/*.swift'
   s.dependency 'FlutterMacOS'
   s.platform = :osx, '12.0'
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
