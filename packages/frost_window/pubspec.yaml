@@ -21,5 +21,9 @@ dev_dependencies:
 flutter:
   plugin:
     platforms:
+      linux:
+        pluginClass: FrostWindowPlugin
+      macos:
+        pluginClass: FrostWindowPlugin
       windows:
         pluginClass: FrostWindowPluginCApi

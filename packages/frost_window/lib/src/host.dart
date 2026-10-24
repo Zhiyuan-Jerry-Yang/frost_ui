@@ -26,9 +26,8 @@ class FrostWindowHost extends StatefulWidget {
   /// falls back normally when the OS or the app disables transparency.
   final FrostWindowBackdrop backdrop;
 
-  /// Width in logical pixels of the resize strip inside the visible top edge.
-  /// The left, right and bottom always use the native invisible frame outside
-  /// the client area, without taking input away from window-edge content.
+  /// Logical-pixel resize strip: the visible top edge on Windows, all edges
+  /// on Linux. AppKit supplies its own macOS resize edges.
   final double resizeBorderWidth;
   @override
   State<FrostWindowHost> createState() => _FrostWindowHostState();
@@ -266,6 +265,10 @@ class _WindowActions extends ChangeNotifier implements FrostWindowActions {
   FrostCaptionState get captionState {
     final state = controller.state;
     return FrostCaptionState(
+      mode: state.captionMode,
+      leftButtons: state.leftButtons,
+      rightButtons: state.rightButtons,
+      nativeControls: state.nativeControls,
       maximized: state.maximized,
       active: state.active,
       maximizeHovered: state.hoveredButton == 'maximize',

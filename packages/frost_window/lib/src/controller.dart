@@ -2,10 +2,16 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:frost_ui/frost_ui.dart';
 
-/// Whether this platform uses the Flutter-drawn title bar and native window
-/// plugin. AppKit and GTK keep their own title bars for now.
-bool get frostUsesCustomTitleBar => !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+/// Whether a native desktop window plugin can be contacted. Actual decoration
+/// geometry and controls come from FrostWindowState, independently of Theme.
+bool get frostUsesCustomTitleBar =>
+    !kIsWeb &&
+    switch (defaultTargetPlatform) {
+      TargetPlatform.windows || TargetPlatform.linux || TargetPlatform.macOS => true,
+      _ => false,
+    };
 
 /// The requested system backdrop. [none] means no system backdrop: the app's
 /// ambient image or solid base supplies the window background.
@@ -31,9 +37,22 @@ class FrostWindowState {
     this.hoveredButton = '',
     this.pressedButton = '',
     this.revision = -1,
+    this.captionMode = FrostCaptionMode.client,
+    this.leftButtons = const [],
+    this.rightButtons = const [FrostCaptionAction.minimize, FrostCaptionAction.maximize, FrostCaptionAction.close],
+    this.nativeControls = Rect.zero,
   });
 
   factory FrostWindowState.fromMap(Map<Object?, Object?> value) => FrostWindowState(
+    captionMode: switch (value['captionMode']) {
+      'nativeControls' => FrostCaptionMode.nativeControls,
+      'system' => FrostCaptionMode.system,
+      null || 'client' => FrostCaptionMode.client,
+      _ => throw const FormatException('Invalid native caption mode'),
+    },
+    leftButtons: _buttons(value['leftButtons'], const []),
+    rightButtons: _buttons(value['rightButtons'], const [FrostCaptionAction.minimize, FrostCaptionAction.maximize, FrostCaptionAction.close]),
+    nativeControls: _nativeRect(value['nativeControls']),
     maximized: value['maximized'] == true,
     active: value['active'] != false,
     minimized: value['minimized'] == true,
@@ -44,6 +63,21 @@ class FrostWindowState {
     pressedButton: value['pressedButton'] as String? ?? '',
     revision: (value['revision'] as num?)?.toInt() ?? 0,
   );
+
+  final FrostCaptionMode captionMode;
+  final List<FrostCaptionAction> leftButtons, rightButtons;
+  final Rect nativeControls;
+
+  static List<FrostCaptionAction> _buttons(Object? value, List<FrostCaptionAction> defaults) =>
+      value == null ? defaults : List.unmodifiable((value as List).map((name) => FrostCaptionAction.values.byName(name as String)));
+  static Rect _nativeRect(Object? value) {
+    if (value == null) return Rect.zero;
+    final coordinates = (value as List).cast<num>();
+    if (coordinates.length != 4 || coordinates.any((n) => !n.isFinite) || coordinates[2] < coordinates[0] || coordinates[3] < coordinates[1]) {
+      throw const FormatException('Invalid native control bounds');
+    }
+    return Rect.fromLTRB(coordinates[0].toDouble(), coordinates[1].toDouble(), coordinates[2].toDouble(), coordinates[3].toDouble());
+  }
 
   final bool maximized;
   final bool active;
@@ -152,13 +186,12 @@ class FrostWindowController extends ChangeNotifier implements ValueListenable<Fr
       _recordFailure('getState', 'invalid_state');
       throw const FrostWindowFailure();
     }
-    final wasFailed = _failed;
     _initialized = true;
     _failed = false;
     _failureMethod = null;
     _failureCode = null;
     _acceptState(Map<Object?, Object?>.from(result));
-    if (wasFailed) notifyListeners();
+    notifyListeners();
   }
 
   void _acceptState(Map<Object?, Object?> value) {
@@ -172,14 +205,17 @@ class FrostWindowController extends ChangeNotifier implements ValueListenable<Fr
   Future<void> minimize() => _invoke<void>('minimize');
   Future<void> toggleMaximized() => _invoke<void>('toggleMaximized');
   Future<void> close() => _invoke<void>('close');
+
+  /// Windows-only keyboard/programmatic menu. Linux opens its compositor menu
+  /// from the original native right-click event; macOS has no window menu.
   Future<void> showSystemMenu() => _invoke<void>('showSystemMenu');
 
   /// Logical-pixel rectangles (left, top, right, bottom, kind) where kind is
   /// `caption` (drag/double-click/system menu) or `maximize` (Snap Layouts).
   Future<void> setRegions(List<List<Object>> regions) => _invoke<void>('setRegions', regions);
 
-  /// Sets the resize strip inside the visible top edge, in logical pixels.
-  /// The other three edges use the system's invisible non-client frame.
+  /// Sets the Windows top resize strip or Linux edge strips, in logical pixels.
+  /// AppKit owns macOS resize edges independently of this setting.
   Future<void> setResizeBorder(double width) => _invoke<void>('setResizeBorder', width);
 
   /// Native window title (taskbar, Alt+Tab) and dark-mode window chrome.

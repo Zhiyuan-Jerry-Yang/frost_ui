@@ -575,6 +575,10 @@ int FrostWindowPlugin::HitTest(POINT point) const {
 
 flutter::EncodableValue FrostWindowPlugin::State() const {
   return flutter::EncodableValue(flutter::EncodableMap{
+      {flutter::EncodableValue("captionMode"), flutter::EncodableValue("client")},
+      {flutter::EncodableValue("leftButtons"), flutter::EncodableValue(flutter::EncodableList{})},
+      {flutter::EncodableValue("rightButtons"), flutter::EncodableValue(flutter::EncodableList{
+          flutter::EncodableValue("minimize"), flutter::EncodableValue("maximize"), flutter::EncodableValue("close")})},
       {flutter::EncodableValue("maximized"),
        flutter::EncodableValue(IsZoomed(window_) != FALSE)},
       {flutter::EncodableValue("active"),

@@ -263,11 +263,11 @@ void main() {
     }
   });
 
-  testWidgets('platform with native title bar leaves child and channel untouched', (tester) async {
+  testWidgets('mobile leaves child and desktop channel untouched', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     mockChannel();
     try {
-      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
       await tester.pumpWidget(
         MaterialApp(
           home: FrostWindowHost(
