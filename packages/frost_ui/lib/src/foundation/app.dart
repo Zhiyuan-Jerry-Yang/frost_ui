@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 
 import '../controls/toast.dart';
+import '../feedback/scroll_to_top.dart';
 import '../feedback/skeleton.dart';
 import '../layout/auto_scaffold.dart';
 import '../media/system_chrome.dart';
@@ -94,7 +95,7 @@ class FrostApp extends StatelessWidget {
                       child: FrostAmbientThemeScope(
                         tokens: config.palettes.palette(targetBrightness, selected.effectiveToneFor(targetBrightness), selected.accentFor(targetBrightness)),
                         child: FrostMediaSystemChromeHost(
-                          child: Builder(builder: (context) => builder?.call(context, child) ?? child ?? const SizedBox.shrink()),
+                          child: FrostScrollToTopHost(child: Builder(builder: (context) => builder?.call(context, child) ?? child ?? const SizedBox.shrink())),
                         ),
                       ),
                     ),

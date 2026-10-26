@@ -35,34 +35,16 @@ class _StatusBarScrollToTopState extends State<FrostStatusBarScrollToTop> with W
 
   @override
   void handleStatusBarTap() {
-    if (!widget.enabled || Theme.of(context).platform != TargetPlatform.iOS || !TickerMode.valuesOf(context).enabled || !_isForeground()) return;
+    // An app-wide host owns event routing when installed. Keep the standalone
+    // feed API available for callers that have not adopted that host.
+    if (FrostScrollToTopScope.contains(context) || !widget.enabled || !frostScrollToTopRouteIsActive(context) || !_isForeground()) return;
     final positions = widget.controller.positions;
     // Fail closed while a viewport is detaching/replacing its controller.
     if (positions.length != 1) return;
-    final position = positions.single;
-    if (position.axis != Axis.vertical || !position.hasContentDimensions || !position.hasPixels || position.pixels <= position.minScrollExtent) return;
-    if (MediaQuery.disableAnimationsOf(context)) {
-      position.jumpTo(position.minScrollExtent);
-    } else {
-      unawaited(position.animateTo(position.minScrollExtent, duration: FrostMotion.gentleDuration, curve: Curves.easeOutCubic));
-    }
+    frostScrollPositionToTop(positions.single, context);
   }
 
   bool _isForeground() {
-    // A nested branch's own route can remain current underneath a root modal.
-    // Check its containing routes as well, including push/pop transitions.
-    var route = ModalRoute.of(context);
-    while (route != null) {
-      if (!route.isCurrent ||
-          route.offstage ||
-          (route.animation != null && !route.animation!.isCompleted) ||
-          (route.secondaryAnimation != null && !route.secondaryAnimation!.isDismissed)) {
-        return false;
-      }
-      final navigator = route.navigator;
-      route = navigator == null ? null : ModalRoute.of(navigator.context);
-    }
-
     final markerContext = _hitTarget.currentContext;
     final marker = markerContext?.findRenderObject();
     if (markerContext == null || marker is! RenderMetaData || !marker.attached || !marker.hasSize || marker.size.isEmpty) return false;
@@ -75,4 +57,39 @@ class _StatusBarScrollToTopState extends State<FrostStatusBarScrollToTop> with W
 
   @override
   Widget build(BuildContext context) => MetaData(key: _hitTarget, behavior: HitTestBehavior.translucent, child: widget.child);
+}
+
+class FrostScrollToTopScope extends InheritedWidget {
+  const FrostScrollToTopScope({required super.child, super.key});
+  static bool contains(BuildContext context) => context.getInheritedWidgetOfExactType<FrostScrollToTopScope>() != null;
+  @override
+  bool updateShouldNotify(FrostScrollToTopScope oldWidget) => false;
+}
+
+bool frostScrollToTopRouteIsActive(BuildContext context) {
+  if (Theme.of(context).platform != TargetPlatform.iOS || !TickerMode.valuesOf(context).enabled) return false;
+  // A nested branch can remain current underneath a containing root modal.
+  var route = ModalRoute.of(context);
+  while (route != null) {
+    if (!route.isCurrent ||
+        route.offstage ||
+        (route.animation != null && !route.animation!.isCompleted) ||
+        (route.secondaryAnimation != null && !route.secondaryAnimation!.isDismissed)) {
+      return false;
+    }
+    final navigator = route.navigator;
+    route = navigator == null ? null : ModalRoute.of(navigator.context);
+  }
+  return true;
+}
+
+void frostScrollPositionToTop(ScrollPosition position, BuildContext context) {
+  if (position.axis != Axis.vertical || !position.hasContentDimensions || !position.hasPixels) return;
+  final top = position.axisDirection == AxisDirection.up ? position.maxScrollExtent : position.minScrollExtent;
+  if ((position.pixels - top).abs() < .5) return;
+  if (MediaQuery.disableAnimationsOf(context)) {
+    position.jumpTo(top);
+  } else {
+    unawaited(position.animateTo(top, duration: FrostMotion.gentleDuration, curve: Curves.easeOutCubic));
+  }
 }

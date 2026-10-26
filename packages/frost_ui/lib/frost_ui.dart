@@ -73,6 +73,7 @@ export 'src/feedback/progress.dart' show FrostProgressBar, FrostProgressRing;
 export 'src/feedback/refresh_dots.dart';
 export 'src/feedback/refresh_indicator.dart';
 export 'src/feedback/refresh_view.dart';
+export 'src/feedback/scroll_to_top.dart';
 export 'src/feedback/skeleton.dart' show FrostSkeletonX, frostSkeletonEffect;
 export 'src/feedback/stale.dart' show FrostStaleX;
 export 'src/foundation/app.dart';
