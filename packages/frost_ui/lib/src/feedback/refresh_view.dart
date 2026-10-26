@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:pull_to_refresh_notification/pull_to_refresh_notification.dart';
 
 import '../foundation/tokens.dart';
+import '_status_bar_scroll_to_top.dart';
 import 'refresh_indicator.dart';
 
 typedef FrostRefreshViewBuilder = Widget Function(BuildContext context, ScrollPhysics? physics, FrostRefreshLocators locators);
@@ -47,11 +48,15 @@ class FrostRefreshLocators {
 }
 
 class FrostRefreshView extends StatefulWidget {
-  const FrostRefreshView({required this.builder, this.scrollController, this.onRefresh, super.key});
+  const FrostRefreshView({required this.builder, this.scrollController, this.onRefresh, this.scrollToTopOnStatusBarTap = false, super.key});
 
   final ScrollController? scrollController;
   final FrostRefreshAction? onRefresh;
   final FrostRefreshViewBuilder builder;
+
+  /// Enables the standard iOS status-bar action for this visible feed only.
+  /// It changes the scroll offset without starting or cancelling a refresh.
+  final bool scrollToTopOnStatusBarTap;
 
   @override
   State<FrostRefreshView> createState() => _DataRefreshViewState();
@@ -142,7 +147,7 @@ class _DataRefreshViewState extends State<FrostRefreshView> with _DataRefreshCal
       // Refresh availability can change with a tab. Keep the child at the
       // same tree location so its pager, providers and scroll state survive.
       notificationPredicate: (notification) => widget.onRefresh != null && defaultNotificationPredicate(notification),
-      child: child,
+      child: FrostStatusBarScrollToTop(enabled: widget.scrollToTopOnStatusBarTap, controller: _effectiveScrollController, child: child),
     );
   }
 
