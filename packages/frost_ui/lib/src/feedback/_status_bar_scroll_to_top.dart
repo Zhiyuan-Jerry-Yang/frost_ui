@@ -85,8 +85,26 @@ bool frostScrollToTopRouteIsActive(BuildContext context) {
 
 void frostScrollPositionToTop(ScrollPosition position, BuildContext context) {
   if (position.axis != Axis.vertical || !position.hasContentDimensions || !position.hasPixels) return;
+  // NestedScrollView coordinates header and body through its outer position.
+  // A floating header may already be expanded while the body is still down.
+  final nested = context.findAncestorStateOfType<NestedScrollViewState>();
+  if (nested != null &&
+      (nested.outerController.positions.contains(position) || nested.innerController.positions.contains(position)) &&
+      nested.outerController.hasClients) {
+    final positions = [...nested.outerController.positions, ...nested.innerController.positions];
+    if (!positions.any((position) => position.hasPixels && position.hasContentDimensions && (position.pixels - position.minScrollExtent).abs() >= .5)) return;
+    position = nested.outerController.position;
+    if (!position.hasPixels || !position.hasContentDimensions) return;
+    _returnToTop(position, position.minScrollExtent, context);
+    return;
+  }
   final top = position.axisDirection == AxisDirection.up ? position.maxScrollExtent : position.minScrollExtent;
-  if ((position.pixels - top).abs() < .5) return;
+  if (!top.isFinite || (position.pixels - top).abs() < .5) return;
+  _returnToTop(position, top, context);
+}
+
+void _returnToTop(ScrollPosition position, double top, BuildContext context) {
+  if (!top.isFinite) return;
   if (MediaQuery.disableAnimationsOf(context)) {
     position.jumpTo(top);
   } else {

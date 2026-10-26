@@ -309,6 +309,50 @@ void main() {
     await _unmount(tester);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
+  testWidgets('a floating nested header at top still returns its scrolled body to top', (tester) async {
+    final nested = GlobalKey<NestedScrollViewState>();
+    await tester.pumpWidget(
+      _app(
+        Material(
+          child: NestedScrollView(
+            key: nested,
+            floatHeaderSlivers: true,
+            headerSliverBuilder: (_, _) => const [SliverAppBar(floating: true, expandedHeight: 200)],
+            body: ListView.builder(itemExtent: 60, itemCount: 100, itemBuilder: (_, i) => Text('Row $i')),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final outer = nested.currentState!.outerController.position;
+    final inner = nested.currentState!.innerController.position;
+    inner.jumpTo(900);
+    await tester.pump();
+    await tester.drag(find.byType(ListView), Offset(0, outer.maxScrollExtent + 40));
+    await tester.pumpAndSettle();
+    expect(outer.pixels, 0);
+    expect(inner.pixels, greaterThan(0));
+    tester.simulateStatusBarTap();
+    await tester.pumpAndSettle();
+    expect(outer.pixels, 0);
+    expect(inner.pixels, 0);
+    await _unmount(tester);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('an unbounded reversed list never receives an infinite scroll target', (tester) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(_app(ListView.builder(controller: scroll, reverse: true, itemExtent: 60, itemBuilder: (_, i) => Text('Row $i'))));
+    await tester.pumpAndSettle();
+    expect(scroll.position.maxScrollExtent, double.infinity);
+    scroll.jumpTo(600);
+    tester.simulateStatusBarTap();
+    await tester.pumpAndSettle();
+    expect(scroll.offset, 600);
+    expect(scroll.offset.isFinite, isTrue);
+    await _unmount(tester);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('reduced motion returns immediately and a disabled host suppresses legacy routing', (tester) async {
     final scroll = ScrollController();
     addTearDown(scroll.dispose);
