@@ -17,6 +17,7 @@ class FrostWindowBackgroundScope extends InheritedWidget {
 }
 
 bool frostHasTranslucentWindowBase(BuildContext context) =>
+    !FrostThemeTokens.of(context).isBlack &&
     !FrostScope.solidSurfaces(context) &&
     !(FrostWindowBackgroundScope.maybeOf(context)?.forceSolidBase ?? false) &&
     ((context.dependOnInheritedWidgetOfExactType<FrostWindowBackgroundScope>()?.hasAmbient ?? false) ||

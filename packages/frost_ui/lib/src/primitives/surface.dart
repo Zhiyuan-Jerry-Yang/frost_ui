@@ -159,6 +159,9 @@ class _FrostSurfaceState extends State<FrostSurface> {
     final color =
         windowFill ??
         switch (role) {
+          FrostSurfaceRole.panel || FrostSurfaceRole.reading when tokens.isBlack => tokens.canvas,
+          FrostSurfaceRole.sheet when tokens.isBlack => tokens.surfaceRaised,
+          FrostSurfaceRole.module when tokens.isBlack => tokens.surface,
           FrostSurfaceRole.glassPanel || FrostSurfaceRole.overlay => tokens.surfaceRaised,
           FrostSurfaceRole.module => Color.alphaBlend(tokens.fillSubtle, behind),
           FrostSurfaceRole.onMediaChrome => frostOnMediaChromeBase(tokens),

@@ -65,6 +65,7 @@ class FrostAppearance {
     required this.lightAccent,
     required this.darkAccent,
     this.mode = ThemeMode.system,
+    this.darkModeColor = FrostDarkModeColor.darkGray,
     this.lightTone = FrostTone.neutral,
     this.darkTone = FrostTone.neutral,
     this.lightCustomAccent,
@@ -75,6 +76,9 @@ class FrostAppearance {
   FrostAppearance.initial(FrostPalettes palettes) : this(lightAccent: palettes.lightDefaultAccent, darkAccent: palettes.darkDefaultAccent);
 
   final ThemeMode mode;
+  final FrostDarkModeColor darkModeColor;
+
+  bool isBlackFor(Brightness brightness) => brightness == Brightness.dark && darkModeColor == FrostDarkModeColor.black;
   final FrostTone lightTone, darkTone;
   final Color lightAccent, darkAccent;
 
@@ -86,6 +90,7 @@ class FrostAppearance {
   bool operator ==(Object other) =>
       other is FrostAppearance &&
       other.mode == mode &&
+      other.darkModeColor == darkModeColor &&
       other.lightTone == lightTone &&
       other.darkTone == darkTone &&
       other.lightAccent == lightAccent &&
@@ -94,15 +99,16 @@ class FrostAppearance {
       other.darkCustomAccent == darkCustomAccent;
 
   @override
-  int get hashCode => Object.hash(mode, lightTone, darkTone, lightAccent, darkAccent, lightCustomAccent, darkCustomAccent);
+  int get hashCode => Object.hash(mode, darkModeColor, lightTone, darkTone, lightAccent, darkAccent, lightCustomAccent, darkCustomAccent);
 
   FrostTone toneFor(Brightness brightness) => brightness == Brightness.light ? lightTone : darkTone;
-  FrostTone effectiveToneFor(Brightness brightness) => mode == ThemeMode.system ? FrostTone.neutral : toneFor(brightness);
+  FrostTone effectiveToneFor(Brightness brightness) => mode == ThemeMode.system || isBlackFor(brightness) ? FrostTone.neutral : toneFor(brightness);
   Color accentFor(Brightness brightness) => brightness == Brightness.light ? lightAccent : darkAccent;
   Color? customAccentFor(Brightness brightness) => brightness == Brightness.light ? lightCustomAccent : darkCustomAccent;
 
   FrostAppearance copyWith({
     ThemeMode? mode,
+    FrostDarkModeColor? darkModeColor,
     FrostTone? lightTone,
     FrostTone? darkTone,
     Color? lightAccent,
@@ -111,6 +117,7 @@ class FrostAppearance {
     Color? darkCustomAccent,
   }) => FrostAppearance(
     mode: mode ?? this.mode,
+    darkModeColor: darkModeColor ?? this.darkModeColor,
     lightTone: lightTone ?? this.lightTone,
     darkTone: darkTone ?? this.darkTone,
     lightAccent: lightAccent ?? this.lightAccent,
@@ -122,6 +129,7 @@ class FrostAppearance {
   Map<String, Object?> toRecord() => {
     'version': 1,
     'mode': mode.name,
+    'darkModeColor': darkModeColor.name,
     'lightTone': lightTone.name,
     'darkTone': darkTone.name,
     'lightAccent': accentHex(lightAccent),
@@ -149,6 +157,7 @@ class FrostAppearance {
 
     return FrostAppearance(
       mode: pickEnum(input['mode'], ThemeMode.values, ThemeMode.system),
+      darkModeColor: pickEnum(input['darkModeColor'], FrostDarkModeColor.values, FrostDarkModeColor.darkGray),
       lightTone: pickEnum(input['lightTone'], FrostTone.values, FrostTone.neutral),
       darkTone: pickEnum(input['darkTone'], FrostTone.values, FrostTone.neutral),
       lightAccent: safeColor(input['lightAccent'], Brightness.light) ?? palettes.lightDefaultAccent,

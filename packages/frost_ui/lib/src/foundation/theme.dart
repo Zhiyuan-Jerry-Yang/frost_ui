@@ -30,6 +30,7 @@ abstract final class FrostTheme {
     required TargetPlatform platform,
     required Locale locale,
     FrostTone tone = FrostTone.neutral,
+    FrostDarkModeColor darkModeColor = FrostDarkModeColor.darkGray,
     Color? accent,
     FrostDensity density = FrostDensity.comfortable,
     bool reducedMotion = false,
@@ -38,7 +39,7 @@ abstract final class FrostTheme {
     return _build(
       config: config,
       palettes: palettes,
-      tokens: palettes.palette(brightness, tone, accent ?? palettes.defaultAccent(brightness)),
+      tokens: palettes.palette(brightness, tone, accent ?? palettes.defaultAccent(brightness), darkModeColor: darkModeColor),
       brightness: brightness,
       fonts: config.fonts.resolve(platform: platform, locale: locale),
       platform: platform,

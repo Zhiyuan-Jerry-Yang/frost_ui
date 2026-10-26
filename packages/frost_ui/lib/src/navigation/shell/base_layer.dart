@@ -116,7 +116,7 @@ final class FrostFlushSidebar extends FrostSidebarStyle {
     final tokens = FrostThemeTokens.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: tokens.surface,
+        color: tokens.isBlack ? tokens.canvas : tokens.surface,
         boxShadow: [...tokens.shadowAmbient, ...tokens.shadowContact],
         border: BorderDirectional(end: BorderSide(color: tokens.panelEdge)),
       ),

@@ -400,8 +400,8 @@ class _DetailLayoutState extends State<FrostDetailLayout> {
       children: [
         Positioned.fill(
           right: FrostPageOutline.channelOf(context),
-          child: widget.backdrop == null
-              ? ColoredBox(color: FrostThemeTokens.of(context).surface)
+          child: widget.backdrop == null || FrostThemeTokens.of(context).isBlack
+              ? ColoredBox(color: FrostThemeTokens.of(context).isBlack ? FrostThemeTokens.of(context).canvas : FrostThemeTokens.of(context).surface)
               : FrostAmbientBackdrop.fromImage(image: widget.backdrop!, child: const SizedBox.expand()),
         ),
         layout,

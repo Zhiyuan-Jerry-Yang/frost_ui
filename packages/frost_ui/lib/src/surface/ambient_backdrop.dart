@@ -264,15 +264,17 @@ class _FrostAmbientBackdropHostState extends State<FrostAmbientBackdropHost> wit
     final size = MediaQuery.sizeOf(context);
     _aspect = size.width / size.height;
     final view = View.of(context);
-    _controller._resize(view.physicalSize / view.devicePixelRatio, view.devicePixelRatio);
-    _request(widget.image);
+    // Retarget first so entering Black cancels old endpoint preparation before
+    // a simultaneous resize can schedule an unused full-window texture.
+    _request(_tokens!.isBlack ? null : widget.image);
     _refreshAppearance();
+    _controller._resize(view.physicalSize / view.devicePixelRatio, view.devicePixelRatio);
   }
 
   @override
   void didUpdateWidget(FrostAmbientBackdropHost oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.image != widget.image) _request(widget.image);
+    if (oldWidget.image != widget.image) _request(_tokens!.isBlack ? null : widget.image);
     if (oldWidget.intensity != widget.intensity || oldWidget.fallback != widget.fallback) _refreshAppearance();
   }
 
@@ -406,7 +408,7 @@ class _FrostAmbientBackdropHostState extends State<FrostAmbientBackdropHost> wit
       widget.fallback,
       _aspect,
     );
-    final accentFallback = widget.fallback == FrostAmbientFallback.accentWash;
+    final accentFallback = !tokens.isBlack && widget.fallback == FrostAmbientFallback.accentWash;
     final material =
         sample?.resolve(tokens, widget.intensity, _aspect) ?? (accentFallback ? frostAmbientAccentMaterial(tokens, widget.intensity, _aspect) : null);
     _controller._show(image, tokens, widget.intensity, material, accentFallback: accentFallback);
@@ -467,9 +469,11 @@ class FrostAmbientBackdrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (_media case final media?) return FrostMediaAmbientBackdrop(image: media.image, child: media.child);
+    if (_media case final media?) {
+      return FrostMediaAmbientBackdrop(image: media.image, child: media.child);
+    }
     final tokens = FrostThemeTokens.of(context);
-    final plain = FrostScope.solidSurfaces(context);
+    final plain = tokens.isBlack || FrostScope.solidSurfaces(context);
     final scope = context.dependOnInheritedWidgetOfExactType<_AmbientScope>();
     final controller = scope?.controller;
     // No repaint boundary here: the backdrop is window-aligned, so it has to

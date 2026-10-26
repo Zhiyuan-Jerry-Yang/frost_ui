@@ -103,13 +103,14 @@ class _FrostMediaAmbientBackdropState extends State<_SizedMediaAmbientBackdrop> 
   ui.Image? _current, _previous;
   Future<Color>? _average;
   ImageProvider? _averageProvider;
-  bool _solid = false;
+  bool _solid = false, _black = false;
   int _requestEpoch = 0, _frameEpoch = 0;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _solid = FrostScope.solidSurfaces(context);
+    _black = FrostThemeTokens.of(context).isBlack;
     _request();
   }
 
@@ -120,7 +121,7 @@ class _FrostMediaAmbientBackdropState extends State<_SizedMediaAmbientBackdrop> 
   }
 
   void _request() {
-    if (widget.size.isEmpty || !widget.size.isFinite) {
+    if (_black || widget.size.isEmpty || !widget.size.isFinite) {
       _detach();
       _requested = null;
       return;
@@ -234,7 +235,9 @@ class _FrostMediaAmbientBackdropState extends State<_SizedMediaAmbientBackdrop> 
         ClipRect(
           child: ExcludeSemantics(
             child: IgnorePointer(
-              child: _solid
+              child: _black
+                  ? const ColoredBox(color: Colors.black)
+                  : _solid
                   ? FutureBuilder<Color>(
                       future: _average,
                       builder: (context, snapshot) {

@@ -18,11 +18,15 @@ const _defaultCategorical = <Color>[
 /// warm palette; follow-system mode always uses the neutral one.
 enum FrostTone { neutral, cool, warm }
 
+/// Background style used only by dark palettes.
+enum FrostDarkModeColor { darkGray, black }
+
 /// Semantic colours of one palette with its accent applied.
 @immutable
 class FrostThemeTokens extends ThemeExtension<FrostThemeTokens> {
   const FrostThemeTokens({
     required this.brightness,
+    this.darkModeColor = FrostDarkModeColor.darkGray,
     required this.tone,
     required this.accent,
     required this.canvas,
@@ -90,6 +94,8 @@ class FrostThemeTokens extends ThemeExtension<FrostThemeTokens> {
        );
 
   final Brightness brightness;
+  final FrostDarkModeColor darkModeColor;
+  bool get isBlack => isDark && darkModeColor == FrostDarkModeColor.black;
   final FrostTone tone;
   final Color accent;
 
@@ -167,6 +173,7 @@ class FrostThemeTokens extends ThemeExtension<FrostThemeTokens> {
       surfaceRaised,
       surfaceMuted,
       surfaceInset,
+      if (isBlack) ...[canvas, hoverSurface, pressedSurface],
     ].reduce((first, second) => colorContrast(colour, first) <= colorContrast(colour, second) ? first : second);
     return readableAccentTone(colour, worst, minimum);
   }
@@ -222,7 +229,7 @@ class FrostThemeTokens extends ThemeExtension<FrostThemeTokens> {
   bool get isDark => brightness == Brightness.dark;
 
   /// Accent tone for text and links on the palette's surfaces (4.5:1).
-  Color get accentInk => readableAccentTone(accent, surface, 4.5);
+  Color get accentInk => isBlack ? _readableOnOpaqueSurfaces(accent, 4.5) : readableAccentTone(accent, surface, 4.5);
 
   /// Translucent accent wash for persistent selection. It stays translucent
   /// so a selected item on glass still shows the material behind it.
@@ -244,6 +251,7 @@ class FrostThemeTokens extends ThemeExtension<FrostThemeTokens> {
   @override
   FrostThemeTokens copyWith({
     Brightness? brightness,
+    FrostDarkModeColor? darkModeColor,
     FrostTone? tone,
     Color? accent,
     Color? canvas,
@@ -286,6 +294,7 @@ class FrostThemeTokens extends ThemeExtension<FrostThemeTokens> {
     List<Color>? categorical,
   }) => FrostThemeTokens(
     brightness: brightness ?? this.brightness,
+    darkModeColor: darkModeColor ?? this.darkModeColor,
     tone: tone ?? this.tone,
     accent: accent ?? this.accent,
     canvas: canvas ?? this.canvas,
@@ -334,6 +343,7 @@ class FrostThemeTokens extends ThemeExtension<FrostThemeTokens> {
     Color mix(Color a, Color b) => Color.lerp(a, b, t)!;
     return FrostThemeTokens(
       brightness: t < .5 ? brightness : other.brightness,
+      darkModeColor: t < .5 ? darkModeColor : other.darkModeColor,
       tone: t < .5 ? tone : other.tone,
       accent: mix(accent, other.accent),
       canvas: mix(canvas, other.canvas),
@@ -410,7 +420,25 @@ class FrostPalettes {
   Color defaultAccent(Brightness brightness) => brightness == Brightness.light ? lightDefaultAccent : darkDefaultAccent;
 
   /// The palette for [brightness] and [tone] with [accent] applied.
-  FrostThemeTokens palette(Brightness brightness, FrostTone tone, Color accent) {
+  FrostThemeTokens palette(Brightness brightness, FrostTone tone, Color accent, {FrostDarkModeColor darkModeColor = FrostDarkModeColor.darkGray}) {
+    if (brightness == Brightness.dark && darkModeColor == FrostDarkModeColor.black) {
+      // Neutral ink with opaque black structural backgrounds. Controls and
+      // foreground layers retain a base/elevated hierarchy.
+      return darkNeutral.copyWith(
+        darkModeColor: darkModeColor,
+        tone: FrostTone.neutral,
+        accent: accent,
+        categorical: List.unmodifiable(categorical),
+        canvas: const Color(0xFF000000),
+        surface: const Color(0xFF1C1C1E),
+        surfaceRaised: const Color(0xFF2C2C2E),
+        surfaceInset: const Color(0xFF141416),
+        surfaceMuted: const Color(0xFF242426),
+        surfaceTint: const Color(0xFF2C2C2E),
+        hoverSurface: const Color(0xFF323234),
+        pressedSurface: const Color(0xFF3A3A3C),
+      );
+    }
     final base = switch ((brightness, tone)) {
       (Brightness.light, FrostTone.neutral) => lightNeutral,
       (Brightness.light, FrostTone.cool) => lightCool,

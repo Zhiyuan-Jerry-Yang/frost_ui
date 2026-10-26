@@ -57,6 +57,7 @@ class FrostApp extends StatelessWidget {
       platform: defaultTargetPlatform,
       locale: effectiveLocale,
       tone: selected.effectiveToneFor(brightness),
+      darkModeColor: selected.darkModeColor,
       accent: selected.accentFor(brightness),
       density: density,
       reducedMotion: reduced,
@@ -93,7 +94,12 @@ class FrostApp extends StatelessWidget {
                   child: FrostToastHost(
                     child: FrostInputFeedback(
                       child: FrostAmbientThemeScope(
-                        tokens: config.palettes.palette(targetBrightness, selected.effectiveToneFor(targetBrightness), selected.accentFor(targetBrightness)),
+                        tokens: config.palettes.palette(
+                          targetBrightness,
+                          selected.effectiveToneFor(targetBrightness),
+                          selected.accentFor(targetBrightness),
+                          darkModeColor: selected.darkModeColor,
+                        ),
                         child: FrostMediaSystemChromeHost(
                           child: FrostScrollToTopHost(child: Builder(builder: (context) => builder?.call(context, child) ?? child ?? const SizedBox.shrink())),
                         ),
