@@ -343,7 +343,11 @@ class _FrostShellState extends State<FrostShell> with SingleTickerProviderStateM
                       enabled: useHorizontalLayout,
                       child: Scaffold(
                         key: _scaffoldKey,
-                        backgroundColor: useHorizontalLayout ? Colors.transparent : FrostThemeTokens.of(context).surface,
+                        backgroundColor: useHorizontalLayout
+                            ? Colors.transparent
+                            : FrostThemeTokens.of(context).isBlack
+                            ? FrostThemeTokens.of(context).canvas
+                            : FrostThemeTokens.of(context).surface,
                         // The shell never shrinks for the keyboard: the sidebar, its
                         // overlays stay put. Destination pages own mobile navigation; pages
                         // keep avoiding it through their own Scaffolds.

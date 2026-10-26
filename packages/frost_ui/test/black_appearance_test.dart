@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frost_ui/frost_ui.dart';
 import 'app_router_test.dart' show TestRouter;
+import 'shell_v2_test.dart' show shell;
 import 'support.dart';
 
 void main() {
@@ -135,6 +136,41 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
+
+  for (final width in [390.0, 1024.0]) {
+    testWidgets('production shell paints black through empty content at width=$width', (tester) async {
+      tester.view.physicalSize = Size(width, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final key = GlobalKey();
+      await tester.pumpWidget(
+        frostTestApp(
+          Theme(
+            data: FrostTheme.build(
+              config: testConfig,
+              brightness: Brightness.dark,
+              darkModeColor: FrostDarkModeColor.black,
+              platform: TargetPlatform.iOS,
+              locale: const Locale('en'),
+            ),
+            child: RepaintBoundary(key: key, child: shell()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final colors = await tester.runAsync(() async {
+        final boundary = tester.renderObject<RenderRepaintBoundary>(find.byKey(key));
+        final rendered = await boundary.toImage(pixelRatio: 1);
+        final bytes = (await rendered.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+        final result = [_sample(bytes, rendered.width, (width * .6).round(), 400), if (width > 600) _sample(bytes, rendered.width, 40, 400)];
+        rendered.dispose();
+        return result;
+      });
+      expect(colors, everyElement(Colors.black));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
 
   for (final reduced in [false, true]) {
     testWidgets('rendered black bases reject ambient tint and retain gray layers, reduced=$reduced', (tester) async {
